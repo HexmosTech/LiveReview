@@ -4,9 +4,13 @@
 // written. Rebuilt as plain SVG + React state instead of D3 selections/arc generators.
 import React, { useEffect, useMemo, useState } from 'react';
 import { BlastRadiusSymbolContribution } from '../../../types/reviews';
-import { buildHierarchy, CallHierarchyNode, emptyCallGraphMessage } from '../../../lib/blastRadius';
+import { buildImpactHierarchy, CallHierarchyNode, emptyCallGraphMessage, hasImpactBranches } from '../../../lib/blastRadius';
 
 const DEPTH_COLORS = ['#b30000', '#d94f2b', '#e07b39', '#e2a545', '#d9c14a'];
+// Blue family for branches that are cross-repo impacts rather than callers:
+// the whole point is that the eye can tell "calls this symbol" apart from
+// "reaches this repository".
+const RELATED_COLORS = ['#1d4ed8', '#2563eb', '#3b82f6'];
 const ROOT_RADIUS = 34;
 
 interface Segment {
@@ -107,11 +111,12 @@ const SunburstChart: React.FC<SunburstChartProps> = ({ symbol, width, height, ho
   const cy = height / 2;
   const maxRadius = Math.min(width, height) / 2 - 8;
 
+  const root = useMemo(() => (symbol ? buildImpactHierarchy(symbol) : null), [symbol]);
+
   const layout = useMemo(() => {
-    if (!symbol || !symbol.Callers || symbol.Callers.length === 0) return null;
-    const root = buildHierarchy(symbol);
+    if (!root || root.children.length === 0) return null;
     return layoutSegments(root, maxRadius);
-  }, [symbol, maxRadius]);
+  }, [root, maxRadius]);
 
   // Entrance animation — git-lrc's D3 join animates each arc in with
   // `.transition().duration(400).delay((d,i) => i*8)` (SunburstChart.js:94),
@@ -128,7 +133,7 @@ const SunburstChart: React.FC<SunburstChartProps> = ({ symbol, width, height, ho
     return () => cancelAnimationFrame(raf);
   }, [layout]);
 
-  if (!symbol || !symbol.Callers || symbol.Callers.length === 0) {
+  if (!symbol || (!hasImpactBranches(symbol) && (!symbol.Callers || symbol.Callers.length === 0))) {
     return <div className="flex items-center justify-center text-xs text-slate-500" style={{ width, height }}>{emptyCallGraphMessage(symbol)}</div>;
   }
   if (!layout) return null;
@@ -139,11 +144,14 @@ const SunburstChart: React.FC<SunburstChartProps> = ({ symbol, width, height, ho
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
       {layout.segments.map((seg, i) => {
         const dimmed = hovered !== null && hovered !== seg.node.qualifiedName;
+        const fill = seg.node.isRelatedRepo || seg.node.isRelatedRoute
+          ? RELATED_COLORS[Math.min(seg.node.isRelatedRepo ? seg.depth : 2, RELATED_COLORS.length - 1)]
+          : DEPTH_COLORS[seg.depth % DEPTH_COLORS.length];
         return (
           <path
             key={`${seg.node.qualifiedName}-${i}`}
             d={arcPath(cx, cy, seg.innerR, seg.outerR, seg.startAngle, seg.endAngle)}
-            fill={DEPTH_COLORS[seg.depth % DEPTH_COLORS.length]}
+            fill={fill}
             opacity={mounted ? (dimmed ? 0.25 : 0.9) : 0}
             stroke="#1a1a1a"
             strokeWidth={0.75}
@@ -155,7 +163,7 @@ const SunburstChart: React.FC<SunburstChartProps> = ({ symbol, width, height, ho
             onMouseEnter={() => setHovered(seg.node.qualifiedName)}
             onMouseLeave={() => setHovered(null)}
           >
-            <title>{seg.node.qualifiedName}</title>
+            <title>{seg.node.isRelatedRepo ? `${seg.node.name} (related repo)` : seg.node.isRelatedRoute ? `${seg.node.name} (route in related repo)` : seg.node.qualifiedName}</title>
           </path>
         );
       })}

@@ -141,3 +141,18 @@ which the entire scoring engine is built on (routes, file-coupling, similarity,
 coverage, methods, interfaces). Fixed upstream in git-lrc by pinning `--format json`
 explicitly on every affected `cli` call (`blastradius/client/client.go`) rather than
 relying on the engine's current default.
+
+## Rendering the impact graph
+
+The Sunburst/Flamegraph charts started as pure caller trees, so a symbol that
+reached a linked repo but had few (or zero) inbound CALLS edges drew a single
+arc or "no callers" — even though the panel's text said the change crosses into
+another repository. `buildImpactHierarchy` now keeps the real caller tree and
+appends each impacted related repo as a branch, with its matched route(s)
+beneath it. Those branches are flagged and drawn in blue, with a caption saying
+they are reach routes rather than callers. Direct impacts and chain hops are
+deduped by repository + route, so a repo reached both directly and through a
+chain is not drawn twice.
+
+The panel also opens on the highest-scoring symbol that has something to draw
+(callers or related repos), instead of a class that only has text references.

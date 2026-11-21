@@ -5,12 +5,14 @@
 // on D3 and this layout doesn't need d3-hierarchy — it's a direct recursive partition.
 import React, { useEffect, useMemo, useState } from 'react';
 import { BlastRadiusSymbolContribution } from '../../../types/reviews';
-import { buildHierarchy, CallHierarchyNode, emptyCallGraphMessage } from '../../../lib/blastRadius';
+import { buildImpactHierarchy, CallHierarchyNode, emptyCallGraphMessage, hasImpactBranches } from '../../../lib/blastRadius';
 
 const PAD_L = 4;
 const PAD_R = 4;
 const PAD_TB = 8;
 const DEPTH_COLORS = ['#b30000', '#d94f2b', '#e07b39', '#e2a545', '#d9c14a'];
+// See SunburstChart's RELATED_COLORS — same cross-repo branch distinction.
+const RELATED_COLORS = ['#1d4ed8', '#2563eb', '#3b82f6'];
 
 interface Bar {
   node: CallHierarchyNode;
@@ -85,8 +87,9 @@ const FlameGraph: React.FC<FlameGraphProps> = ({ symbol, width, height, hovered:
   const setHovered = onHover || setInternalHovered;
 
   const layout = useMemo(() => {
-    if (!symbol || !symbol.Callers || symbol.Callers.length === 0) return null;
-    const root = buildHierarchy(symbol);
+    if (!symbol) return null;
+    const root = buildImpactHierarchy(symbol);
+    if (root.children.length === 0) return null;
     return layoutBars(root, width, height);
   }, [symbol, width, height]);
 
@@ -102,7 +105,7 @@ const FlameGraph: React.FC<FlameGraphProps> = ({ symbol, width, height, hovered:
     return () => cancelAnimationFrame(raf);
   }, [layout]);
 
-  if (!symbol || !symbol.Callers || symbol.Callers.length === 0) {
+  if (!symbol || (!hasImpactBranches(symbol) && (!symbol.Callers || symbol.Callers.length === 0))) {
     return <div className="flex items-center justify-center text-xs text-slate-500" style={{ width, height }}>{emptyCallGraphMessage(symbol)}</div>;
   }
   if (!layout) return null;
@@ -119,7 +122,9 @@ const FlameGraph: React.FC<FlameGraphProps> = ({ symbol, width, height, hovered:
               x={bar.x}
               y={bar.y}
               height={bar.height}
-              fill={DEPTH_COLORS[bar.depth % DEPTH_COLORS.length]}
+              fill={bar.node.isRelatedRepo || bar.node.isRelatedRoute
+                ? RELATED_COLORS[Math.min(bar.node.isRelatedRepo ? bar.depth : 2, RELATED_COLORS.length - 1)]
+                : DEPTH_COLORS[bar.depth % DEPTH_COLORS.length]}
               stroke="#3d0000"
               strokeWidth={1}
               style={{
@@ -130,7 +135,7 @@ const FlameGraph: React.FC<FlameGraphProps> = ({ symbol, width, height, hovered:
               onMouseEnter={() => setHovered(bar.node.qualifiedName)}
               onMouseLeave={() => setHovered(null)}
             >
-              <title>{bar.node.qualifiedName}</title>
+              <title>{bar.node.isRelatedRepo ? `${bar.node.name} (related repo)` : bar.node.isRelatedRoute ? `${bar.node.name} (route in related repo)` : bar.node.qualifiedName}</title>
             </rect>
             {bar.width > 40 && (
               <text

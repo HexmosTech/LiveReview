@@ -4,7 +4,7 @@
 // is discarded, it's presented prioritized and collapsed, with every layer expandable.
 // Rebuilt as React/Tailwind against LiveReview's UIPrimitives instead of git-lrc's
 // hand-rolled CSS + position:fixed popovers (Tooltip here covers that).
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import classNames from 'classnames';
 import { Link } from 'react-router-dom';
 import { LuChevronDown, LuChevronRight } from 'react-icons/lu';
@@ -22,7 +22,9 @@ import {
   blendRiskScore,
   callerGroupLabel,
   CallerGroup as CallerGroupType,
+  crossRepoRouteLabel,
   groupCallers,
+  hasImpactBranches,
   SEVERITY_WEIGHT,
   shortName,
 } from '../../../lib/blastRadius';
@@ -76,7 +78,7 @@ function groupRelatedRepos(impacts?: BlastRadiusCrossRepoImpact[]): RelatedRepoG
   return Array.from(groups.values());
 }
 
-const routeLabel = (callSite: string) => callSite.replace(/^__route__[A-Z]+__/, '');
+const routeLabel = crossRepoRouteLabel;
 
 const RelatedRepoChips: React.FC<{ impacts?: BlastRadiusCrossRepoImpact[]; preview: number; label: string }> = ({ impacts, preview, label }) => {
   const [showAll, setShowAll] = useState(false);
@@ -276,14 +278,44 @@ const DETAIL_LIST_PREVIEW = 6;
 // with no truncation applied server-side — clamp them client-side with a
 // "+N more"/"show less" toggle instead of dumping the whole wall of text
 // inline, the same preview pattern already used for ChipList/CallerGroupView.
-const SignalDetailText: React.FC<{ detail: string }> = ({ detail }) => {
+// The cross-repo signal's Detail is generated server-side as plain text
+// ("Called from org/service"). This turns every related-repo name inside that
+// text into the same in-app repository link the chips already use, so the
+// single sentence that names the repo is navigable too.
+const renderLinkedRepoText = (text: string, impacts?: BlastRadiusCrossRepoImpact[]): React.ReactNode => {
+  const entries = new Map<string, { name: string; id?: number }>();
+  (impacts || []).forEach((im) => {
+    const name = crossRepoDisplayName(im);
+    if (!name || entries.has(name)) return;
+    entries.set(name, { name, id: im.RelatedRepoID });
+  });
+  const names = Array.from(entries.keys()).sort((a, b) => b.length - a.length);
+  if (names.length === 0) return text;
+  const pattern = new RegExp(`(${names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'g');
+  return text.split(pattern).map((part, idx) => {
+    const entry = entries.get(part);
+    if (!entry) return <React.Fragment key={idx}>{part}</React.Fragment>;
+    if (!entry.id) return <span key={idx} className="font-mono text-slate-300">{part}</span>;
+    return (
+      <Link
+        key={idx}
+        to={`/explore/repositories/${entry.id}/settings`}
+        className="font-mono text-blue-300 underline decoration-dotted hover:text-blue-200"
+      >
+        {part}
+      </Link>
+    );
+  });
+};
+
+const SignalDetailText: React.FC<{ detail: string; impacts?: BlastRadiusCrossRepoImpact[] }> = ({ detail, impacts }) => {
   const [showAll, setShowAll] = useState(false);
   const parts = detail.split(', ');
-  if (parts.length <= DETAIL_LIST_PREVIEW) return <>{detail}</>;
+  if (parts.length <= DETAIL_LIST_PREVIEW) return <>{renderLinkedRepoText(detail, impacts)}</>;
   if (showAll) {
     return (
       <>
-        {detail}{' '}
+        {renderLinkedRepoText(detail, impacts)}{' '}
         <button type="button" className="text-slate-400 underline decoration-dotted hover:text-slate-200" onClick={(e) => { e.stopPropagation(); setShowAll(false); }}>
           show less
         </button>
@@ -293,7 +325,7 @@ const SignalDetailText: React.FC<{ detail: string }> = ({ detail }) => {
   const hidden = parts.length - DETAIL_LIST_PREVIEW;
   return (
     <>
-      {parts.slice(0, DETAIL_LIST_PREVIEW).join(', ')}{' '}
+      {renderLinkedRepoText(parts.slice(0, DETAIL_LIST_PREVIEW).join(', '), impacts)}{' '}
       <button type="button" className="text-slate-400 underline decoration-dotted hover:text-slate-200" onClick={(e) => { e.stopPropagation(); setShowAll(true); }}>
         +{hidden} more
       </button>
@@ -301,7 +333,7 @@ const SignalDetailText: React.FC<{ detail: string }> = ({ detail }) => {
   );
 };
 
-const SignalRow: React.FC<{ s: BlastRadiusSignal; dormant?: boolean }> = ({ s, dormant }) => {
+const SignalRow: React.FC<{ s: BlastRadiusSignal; dormant?: boolean; impacts?: BlastRadiusCrossRepoImpact[] }> = ({ s, dormant, impacts }) => {
   const positive = (s.Points || 0) >= 0;
   return (
     <li className="flex items-start gap-2 py-0.5 text-xs">
@@ -310,31 +342,31 @@ const SignalRow: React.FC<{ s: BlastRadiusSignal; dormant?: boolean }> = ({ s, d
       </span>
       <span className={classNames('flex-1', dormant ? 'text-slate-600' : 'text-slate-300')}>
         {s.Name}
-        {s.Detail && <span className="ml-1 text-slate-500">— <SignalDetailText detail={s.Detail} /></span>}
+        {s.Detail && <span className="ml-1 text-slate-500">— <SignalDetailText detail={s.Detail} impacts={impacts} /></span>}
       </span>
     </li>
   );
 };
 
-const SignalBlock: React.FC<{ signals: BlastRadiusSignal[]; dormant?: boolean }> = ({ signals, dormant }) => {
+const SignalBlock: React.FC<{ signals: BlastRadiusSignal[]; dormant?: boolean; impacts?: BlastRadiusCrossRepoImpact[] }> = ({ signals, dormant, impacts }) => {
   if (distinctSymbolCount(signals) <= 1) {
-    return <ul className="space-y-0.5">{signals.map((s, idx) => <SignalRow key={idx} s={s} dormant={dormant} />)}</ul>;
+    return <ul className="space-y-0.5">{signals.map((s, idx) => <SignalRow key={idx} s={s} dormant={dormant} impacts={impacts} />)}</ul>;
   }
   const { ungrouped, groups } = groupSignalsBySymbol(signals);
   return (
     <div className="space-y-2">
-      {ungrouped.length > 0 && <ul className="space-y-0.5">{ungrouped.map((s, idx) => <SignalRow key={idx} s={s} dormant={dormant} />)}</ul>}
+      {ungrouped.length > 0 && <ul className="space-y-0.5">{ungrouped.map((s, idx) => <SignalRow key={idx} s={s} dormant={dormant} impacts={impacts} />)}</ul>}
       {groups.map(([name, sigs]) => (
         <div key={name}>
           <code className="text-[11px] text-slate-500">{shortName(name)}</code>
-          <ul className="space-y-0.5">{sigs.map((s, idx) => <SignalRow key={idx} s={s} dormant={dormant} />)}</ul>
+          <ul className="space-y-0.5">{sigs.map((s, idx) => <SignalRow key={idx} s={s} dormant={dormant} impacts={impacts} />)}</ul>
         </div>
       ))}
     </div>
   );
 };
 
-const SignalList: React.FC<{ signals: BlastRadiusSignal[] }> = ({ signals }) => {
+const SignalList: React.FC<{ signals: BlastRadiusSignal[]; impacts?: BlastRadiusCrossRepoImpact[] }> = ({ signals, impacts }) => {
   const [showDormant, setShowDormant] = useState(false);
   const ranked = sortedSignals(signals);
   const active = ranked.filter((s) => (s.Points || 0) !== 0);
@@ -344,8 +376,8 @@ const SignalList: React.FC<{ signals: BlastRadiusSignal[] }> = ({ signals }) => 
   }
   return (
     <div>
-      <SignalBlock signals={active} />
-      {showDormant && <SignalBlock signals={dormant} dormant />}
+      <SignalBlock signals={active} impacts={impacts} />
+      {showDormant && <SignalBlock signals={dormant} dormant impacts={impacts} />}
       {dormant.length > 0 && (
         <button type="button" className="mt-1 text-[11px] text-slate-500 hover:text-slate-300" onClick={() => setShowDormant((v) => !v)}>
           {showDormant ? 'hide checked-but-inactive signals' : `${dormant.length} signal${dormant.length !== 1 ? 's' : ''} checked, not contributing`}
@@ -370,13 +402,13 @@ function normMathText(raw: number, max: number, norm: number): string {
   return `${r} points here. The highest-scoring hunk in this diff scored ${max.toFixed(1)}, so this one ranks ${Math.round(norm || 0)}/100 by comparison.`;
 }
 
-const DimensionCard: React.FC<{ title: string; norm: number; raw: number; max: number; signals: BlastRadiusSignal[] }> = ({ title, norm, raw, max, signals }) => (
+const DimensionCard: React.FC<{ title: string; norm: number; raw: number; max: number; signals: BlastRadiusSignal[]; impacts?: BlastRadiusCrossRepoImpact[] }> = ({ title, norm, raw, max, signals, impacts }) => (
   <div className="rounded-lg border border-slate-700 bg-slate-900 p-3">
     <div className="mb-2">
       <div className="text-sm font-semibold text-slate-200">{title}</div>
       <div className="text-xs text-slate-500">{normMathText(raw, max, norm)}</div>
     </div>
-    <SignalList signals={signals} />
+    <SignalList signals={signals} impacts={impacts} />
   </div>
 );
 
@@ -673,7 +705,7 @@ const SymbolDetail: React.FC<{
           </span>
         ))}
       </div>
-      <SignalList signals={sym.Signals || []} />
+      <SignalList signals={sym.Signals || []} impacts={sym.ImpactedRelatedRepos} />
       {totalCallers > 0 && (
         <div>
           <div className="mb-1 text-xs font-medium text-slate-400">Reached from {totalCallers} caller{totalCallers !== 1 ? 's' : ''}</div>
@@ -715,7 +747,15 @@ const BlastRadiusPanel: React.FC<BlastRadiusPanelProps> = ({ detail }) => {
     () => splitSignalsByDimension(allSignals(detail)),
     [detail]
   );
-  const [selectedIdx, setSelectedIdx] = useState(0);
+  // Default to a symbol that actually has something to draw: classes often
+  // outrank their methods on text references but have no call edges, which
+  // made the chart look missing until the user stepped to the method.
+  const defaultSymbolIdx = useMemo(() => {
+    const i = symbols.findIndex((s) => (s.Callers?.length || 0) > 0 || hasImpactBranches(s));
+    return i >= 0 ? i : 0;
+  }, [symbols]);
+  const [selectedIdx, setSelectedIdx] = useState(defaultSymbolIdx);
+  useEffect(() => { setSelectedIdx(defaultSymbolIdx); }, [defaultSymbolIdx]);
   const [vizMode, setVizMode] = useState<'sunburst' | 'flamegraph'>('sunburst');
   const [scoreMode, setScoreMode] = useState<'summary' | 'math'>('summary');
   // Shared between the caller list and the sunburst/flamegraph so hovering a
@@ -769,8 +809,8 @@ const BlastRadiusPanel: React.FC<BlastRadiusPanelProps> = ({ detail }) => {
         <MathModeView detail={detail} />
       ) : (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <DimensionCard title="Blast Radius" norm={detail.BlastRadiusNorm} raw={detail.BlastRadiusRaw} max={detail.MaxBlastRadiusRaw} signals={blastSignals} />
-          <DimensionCard title="Review Priority" norm={detail.ReviewPriorityNorm} raw={detail.ReviewPriorityRaw} max={detail.MaxReviewPriorityRaw} signals={prioritySignals} />
+          <DimensionCard title="Blast Radius" norm={detail.BlastRadiusNorm} raw={detail.BlastRadiusRaw} max={detail.MaxBlastRadiusRaw} signals={blastSignals} impacts={detail.ImpactedRelatedRepos} />
+          <DimensionCard title="Review Priority" norm={detail.ReviewPriorityNorm} raw={detail.ReviewPriorityRaw} max={detail.MaxReviewPriorityRaw} signals={prioritySignals} impacts={detail.ImpactedRelatedRepos} />
           <SeverityCard severityScore={severityScore} severityLabel={severityLabel} severityCounts={severityCounts} />
         </div>
       )}
@@ -801,6 +841,12 @@ const BlastRadiusPanel: React.FC<BlastRadiusPanelProps> = ({ detail }) => {
             {vizMode === 'sunburst'
               ? <SunburstChart symbol={chartSymbol} width={380} height={380} hovered={hoveredCaller} onHover={setHoveredCaller} />
               : <FlameGraph symbol={chartSymbol} width={380} height={380} hovered={hoveredCaller} onHover={setHoveredCaller} />}
+            {hasImpactBranches(symbols[selectedIdx]) && (
+              <p className="mt-2 text-[11px] text-slate-500">
+                <span className="mr-1 inline-block h-2 w-2 rounded-sm bg-blue-600 align-middle" />
+                Blue branches are routes this change reaches in related repositories, not callers.
+              </p>
+            )}
           </div>
         </div>
       )}

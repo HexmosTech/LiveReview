@@ -7,6 +7,8 @@
 
 import {
   BlastRadiusCallerRef,
+  BlastRadiusCrossRepoChain,
+  BlastRadiusCrossRepoImpact,
   BlastRadiusHunkReport,
   BlastRadiusReport,
   BlastRadiusSignal,
@@ -341,6 +343,15 @@ export interface CallHierarchyNode {
   isLeaf?: boolean;
   depth?: number;
   weight?: number;
+  /**
+   * Set on synthetic branches built from cross-repo impacts. They are not
+   * CALLS-graph callers: the reviewed symbol calls a route served by another
+   * repository, which is why the chart labels/colors them separately.
+   */
+  isRelatedRepo?: boolean;
+  isRelatedRoute?: boolean;
+  relatedRepoID?: number;
+  relatedRepoWebURL?: string;
 }
 
 /**
@@ -425,6 +436,105 @@ export function buildHierarchy(symbol: {
     qualifiedName: symbol.QualifiedName,
     children,
   };
+}
+
+/** Formats an engine route qualified name for display: `__route__POST__/v1/x` → `/v1/x`. */
+export function crossRepoRouteLabel(callSite: string): string {
+  return (callSite || '').replace(/^__route__[A-Z]+__/, '');
+}
+
+function crossRepoBranchKey(im: BlastRadiusCrossRepoImpact): string {
+  if (im.RelatedRepoID) return `id:${im.RelatedRepoID}`;
+  return `name:${im.RelatedRepoName || im.RelatedRepo}`;
+}
+
+function crossRepoBranchName(im: BlastRadiusCrossRepoImpact): string {
+  return im.RelatedRepoName || im.RelatedRepo;
+}
+
+/**
+ * Call hierarchy plus cross-repo impact branches.
+ *
+ * The charts are the one place in the panel that show shape rather than a
+ * list, and until now they only ever read the CALLS graph — so a symbol that
+ * calls a route in a linked repository produced a one-segment ring (or no
+ * chart at all when the caller was a route handler with no inbound edge).
+ * This keeps the real caller hierarchy and appends each impacted repository
+ * as its own branch, with the matched route(s) beneath it. Related branches
+ * are flagged so the charts can color and label them separately; nothing is
+ * presented as a CALLS edge that isn't one.
+ */
+export function buildImpactHierarchy(symbol: {
+  Name?: string;
+  QualifiedName: string;
+  Callers?: BlastRadiusCallerRef[];
+  ImpactedRelatedRepos?: BlastRadiusCrossRepoImpact[];
+  ImpactedRepoChains?: BlastRadiusCrossRepoChain[];
+}): CallHierarchyNode {
+  const root = buildHierarchy(symbol);
+  const branches = new Map<string, CallHierarchyNode>();
+
+  const ensureBranch = (im: BlastRadiusCrossRepoImpact): CallHierarchyNode => {
+    const key = crossRepoBranchKey(im);
+    let branch = branches.get(key);
+    if (!branch) {
+      branch = {
+        name: crossRepoBranchName(im),
+        qualifiedName: `related-repo:${key}`,
+        children: [],
+        isRelatedRepo: true,
+        relatedRepoID: im.RelatedRepoID,
+        relatedRepoWebURL: im.RelatedRepoWebURL,
+      };
+      branches.set(key, branch);
+      root.children.push(branch);
+    }
+    return branch;
+  };
+
+  const addRoute = (im: BlastRadiusCrossRepoImpact) => {
+    if (!im.CallSite) return;
+    const branch = ensureBranch(im);
+    const routeName = crossRepoRouteLabel(im.CallSite);
+    const qn = `related-route:${crossRepoBranchKey(im)}:${im.CallSite}`;
+    if (branch.children.some((child) => child.qualifiedName === qn)) return;
+    branch.children.push({
+      name: routeName,
+      qualifiedName: qn,
+      children: [],
+      isRelatedRoute: true,
+      isLeaf: true,
+      relatedRepoID: im.RelatedRepoID,
+      relatedRepoWebURL: im.RelatedRepoWebURL,
+    });
+  };
+
+  (symbol.ImpactedRelatedRepos || []).forEach(addRoute);
+  // Chain hops use the same shape; a hop is a more distant repo reached from
+  // this symbol, so it belongs in the same "repos reached" ring rather than
+  // being hidden behind the collapsed chain list.
+  (symbol.ImpactedRepoChains || []).forEach((chain) => {
+    (chain.Hops || []).forEach((hop) => {
+      addRoute({
+        RelatedRepo: hop.RelatedRepo,
+        RelatedRepoID: hop.RelatedRepoID,
+        RelatedRepoName: hop.RelatedRepoName,
+        RelatedRepoWebURL: hop.RelatedRepoWebURL,
+        CallSite: hop.CallSite,
+        EdgeType: hop.EdgeType,
+      });
+    });
+  });
+
+  return root;
+}
+
+export function hasImpactBranches(symbol: {
+  ImpactedRelatedRepos?: BlastRadiusCrossRepoImpact[];
+  ImpactedRepoChains?: BlastRadiusCrossRepoChain[];
+} | null | undefined): boolean {
+  if (!symbol) return false;
+  return (symbol.ImpactedRelatedRepos?.length || 0) > 0 || (symbol.ImpactedRepoChains?.length || 0) > 0;
 }
 
 export function emptyCallGraphMessage(symbol: { Method?: string } | null | undefined): string {

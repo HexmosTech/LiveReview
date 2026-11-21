@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import classNames from 'classnames';
 import { Icons } from '../UIPrimitives';
 import { flattenMegaMenuSections, MegaMenuGroupNode, MegaMenuLinkNode, MegaMenuNode, MegaMenuSearchEntry, MegaMenuSection } from './megaMenuData';
@@ -47,17 +47,24 @@ type NavMegaMenuProps = {
     searchFocusToken?: number;
 };
 
+// Any non-plain-left click (ctrl/cmd-click, middle-click, etc.) must keep the
+// browser's own behavior — it opens a real <a href>, so right-click → "Open in
+// new tab" and ctrl-click both work. Only a plain left click closes the menu
+// and starts the in-app navigation progress bar.
+const isModifiedNavigation = (event: React.MouseEvent): boolean =>
+    event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+
 const EnterpriseBadge: React.FC = () => (
     <span className="shrink-0 rounded border border-amber-700/50 bg-amber-900/30 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-400">
         Enterprise
     </span>
 );
 
-const LinkRow: React.FC<{ node: MegaMenuLinkNode; goTo: (path: string) => void }> = ({ node, goTo }) => (
+const LinkRow: React.FC<{ node: MegaMenuLinkNode; onLinkClick: (event: React.MouseEvent) => void }> = ({ node, onLinkClick }) => (
     <li>
-        <button
-            type="button"
-            onClick={() => goTo(node.path)}
+        <Link
+            to={node.path}
+            onClick={onLinkClick}
             onMouseEnter={() => prefetchRoute(node.path)}
             onFocus={() => prefetchRoute(node.path)}
             className="flex w-full items-center gap-2 whitespace-nowrap rounded-lg px-2 py-1.5 text-left text-xs text-slate-300 transition-colors hover:bg-slate-700/60 hover:text-white"
@@ -65,7 +72,7 @@ const LinkRow: React.FC<{ node: MegaMenuLinkNode; goTo: (path: string) => void }
             <span className="shrink-0 text-slate-400">{node.icon}</span>
             <span className="truncate">{node.name}</span>
             {node.isEnterprise && isCloudMode() && <EnterpriseBadge />}
-        </button>
+        </Link>
     </li>
 );
 
@@ -76,44 +83,57 @@ const LinkRow: React.FC<{ node: MegaMenuLinkNode; goTo: (path: string) => void }
 // default — matching the behavior of the top-level groups.
 type GroupRowProps = {
     node: MegaMenuGroupNode;
-    goTo: (path: string) => void;
+    onLinkClick: (event: React.MouseEvent) => void;
     id: string;
     openGroups: Set<string>;
     openGroup: (id: string) => void;
     forceExpandAll?: boolean;
 };
 
-const GroupRow: React.FC<GroupRowProps> = ({ node, goTo, id, openGroups, openGroup, forceExpandAll }) => {
+const GroupRow: React.FC<GroupRowProps> = ({ node, onLinkClick, id, openGroups, openGroup, forceExpandAll }) => {
     const isOpen = forceExpandAll || openGroups.has(id);
+    const rowClass = classNames(
+        'flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-left text-xs font-medium transition-colors',
+        node.path ? 'cursor-pointer' : 'cursor-default',
+        isOpen ? 'bg-slate-700/60 text-white' : 'text-slate-300 hover:bg-slate-700/60 hover:text-white'
+    );
+    const content = (
+        <>
+            <span className="flex min-w-0 items-center gap-2">
+                {node.icon && <span className="shrink-0 text-slate-400">{node.icon}</span>}
+                <span className="truncate">{node.name}</span>
+            </span>
+            <span className={classNames('shrink-0 transition-transform', isOpen && 'rotate-90')}>
+                <Icons.ChevronRight />
+            </span>
+        </>
+    );
     return (
         <li>
-            <div
-                onMouseEnter={() => openGroup(id)}
-                onClick={node.path ? () => goTo(node.path as string) : undefined}
-                className={classNames(
-                    'flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-left text-xs font-medium transition-colors',
-                    node.path ? 'cursor-pointer' : 'cursor-default',
-                    isOpen ? 'bg-slate-700/60 text-white' : 'text-slate-300 hover:bg-slate-700/60 hover:text-white'
-                )}
-            >
-                <span className="flex min-w-0 items-center gap-2">
-                    {node.icon && <span className="shrink-0 text-slate-400">{node.icon}</span>}
-                    <span className="truncate">{node.name}</span>
-                </span>
-                <span className={classNames('shrink-0 transition-transform', isOpen && 'rotate-90')}>
-                    <Icons.ChevronRight />
-                </span>
-            </div>
+            {node.path ? (
+                <Link
+                    to={node.path}
+                    onMouseEnter={() => openGroup(id)}
+                    onClick={onLinkClick}
+                    className={rowClass}
+                >
+                    {content}
+                </Link>
+            ) : (
+                <div onMouseEnter={() => openGroup(id)} className={rowClass}>
+                    {content}
+                </div>
+            )}
             {isOpen && (
                 <ul className="ml-2 mt-0.5 space-y-0.5 border-l border-slate-700/60 pl-2">
                     {node.children.map((child) => (
                         child.kind === 'link'
-                            ? <LinkRow key={`${child.path}:${child.name}`} node={child} goTo={goTo} />
+                            ? <LinkRow key={`${child.path}:${child.name}`} node={child} onLinkClick={onLinkClick} />
                             : (
                                 <GroupRow
                                     key={child.name}
                                     node={child}
-                                    goTo={goTo}
+                                    onLinkClick={onLinkClick}
                                     id={`${id}>${child.name}`}
                                     openGroups={openGroups}
                                     openGroup={openGroup}
@@ -131,7 +151,7 @@ const GroupRow: React.FC<GroupRowProps> = ({ node, goTo, id, openGroups, openGro
 // here, at the column level, and only collapses when the mouse leaves the WHOLE column (not a
 // single row) — otherwise moving from an open group down to a sibling link collapses the group
 // mid-transit and the target jumps out from under the cursor.
-const SectionColumn: React.FC<{ section: MegaMenuSection; goTo: (path: string) => void; isHighlighted?: boolean; forceExpandAll?: boolean }> = ({ section, goTo, isHighlighted, forceExpandAll }) => {
+const SectionColumn: React.FC<{ section: MegaMenuSection; onLinkClick: (event: React.MouseEvent) => void; isHighlighted?: boolean; forceExpandAll?: boolean }> = ({ section, onLinkClick, isHighlighted, forceExpandAll }) => {
     // Groups a user has hovered stay expanded — switching to a sibling group must never collapse
     // another one, since collapsing shifts content under the cursor and closes everything.
     const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
@@ -180,23 +200,24 @@ const SectionColumn: React.FC<{ section: MegaMenuSection; goTo: (path: string) =
         >
             {section.items && section.items.length > 0 && (
                 <>
-                    <button
-                        type="button"
-                        onClick={() => goTo(section.path)}
+                    <Link
+                        to={section.path}
+                        onClick={onLinkClick}
+                        onMouseEnter={() => prefetchRoute(section.path)}
                         className="flex w-full items-center gap-2 px-2 pb-1 text-sm font-semibold text-white hover:text-blue-400 transition-colors"
                     >
                         <span className="text-blue-400">{section.icon}</span>
                         {section.name}
-                    </button>
+                    </Link>
                     <ul className="space-y-0.5">
                         {section.items.map((node: MegaMenuNode) => (
                             node.kind === 'link'
-                                ? <LinkRow key={`${node.path}:${node.name}`} node={node} goTo={goTo} />
+                                ? <LinkRow key={`${node.path}:${node.name}`} node={node} onLinkClick={onLinkClick} />
                                 : (
                                     <GroupRow
                                         key={node.name}
                                         node={node}
-                                        goTo={goTo}
+                                        onLinkClick={onLinkClick}
                                         id={node.name}
                                         openGroups={openGroups}
                                         openGroup={openGroup}
@@ -211,11 +232,11 @@ const SectionColumn: React.FC<{ section: MegaMenuSection; goTo: (path: string) =
     );
 };
 
-const SearchResultRow: React.FC<{ entry: MegaMenuSearchEntry; isFirst: boolean; goTo: (path: string) => void }> = ({ entry, isFirst, goTo }) => (
+const SearchResultRow: React.FC<{ entry: MegaMenuSearchEntry; isFirst: boolean; onLinkClick: (event: React.MouseEvent) => void }> = ({ entry, isFirst, onLinkClick }) => (
     <li>
-        <button
-            type="button"
-            onClick={() => goTo(entry.path)}
+        <Link
+            to={entry.path}
+            onClick={onLinkClick}
             onMouseEnter={() => prefetchRoute(entry.path)}
             onFocus={() => prefetchRoute(entry.path)}
             className={classNames(
@@ -231,7 +252,7 @@ const SearchResultRow: React.FC<{ entry: MegaMenuSearchEntry; isFirst: boolean; 
                 </span>
                 <span className="block truncate text-[11px] text-slate-400">{entry.breadcrumb}</span>
             </span>
-        </button>
+        </Link>
     </li>
 );
 
@@ -280,6 +301,18 @@ export const NavMegaMenu: React.FC<NavMegaMenuProps> = ({ isOpen, onClose, secti
     const goTo = (path: string) => {
         triggerNavigationProgress();
         navigate(path);
+        onClose();
+    };
+
+    // Used by every real <a> in the menu. Plain left click: close + progress,
+    // router performs the navigation. Modified/middle click: leave it to the
+    // browser (new tab/window) and just dismiss the menu.
+    const onLinkClick = (event: React.MouseEvent) => {
+        if (isModifiedNavigation(event)) {
+            onClose();
+            return;
+        }
+        triggerNavigationProgress();
         onClose();
     };
 
@@ -348,7 +381,7 @@ export const NavMegaMenu: React.FC<NavMegaMenuProps> = ({ isOpen, onClose, secti
                         ) : (
                             <ul className="grid grid-cols-2 gap-0.5">
                                 {results.map((entry, index) => (
-                                    <SearchResultRow key={`${entry.breadcrumb}:${entry.path}:${entry.name}`} entry={entry} isFirst={index === 0} goTo={goTo} />
+                                    <SearchResultRow key={`${entry.breadcrumb}:${entry.path}:${entry.name}`} entry={entry} isFirst={index === 0} onLinkClick={onLinkClick} />
                                 ))}
                             </ul>
                         )}
@@ -362,7 +395,7 @@ export const NavMegaMenu: React.FC<NavMegaMenuProps> = ({ isOpen, onClose, secti
                             <SectionColumn
                                 key={section.key}
                                 section={section}
-                                goTo={goTo}
+                                onLinkClick={onLinkClick}
                                 isHighlighted={Boolean(highlightKey) && section.key === highlightKey}
                                 forceExpandAll={isAllExpanded}
                             />

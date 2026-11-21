@@ -5,7 +5,10 @@ import {
   attachBlastData,
   blendRiskScore,
   buildBlastLookup,
+  buildImpactHierarchy,
+  crossRepoRouteLabel,
   flattenFilesByRisk,
+  hasImpactBranches,
   hunkSeverityInfo,
 } from './blastRadius';
 import { DiffReviewComment, BlastRadiusHunkReport, DiffReviewFile, DiffReviewHunk } from '../types/reviews';
@@ -189,5 +192,69 @@ describe('flattenFilesByRisk - comment conservation', () => {
       }),
       { numRuns: 300 }
     );
+  });
+});
+
+describe('buildImpactHierarchy', () => {
+  const symbol = {
+    Name: 'sendPayload',
+    QualifiedName: 'svc.SendPayload',
+    Callers: [
+      { QualifiedName: 'svc.Controller.send', Depth: 1, Weight: 1 },
+      { QualifiedName: 'svc.Job.run', Depth: 2, Weight: 1, Path: ['svc.Controller.send'] },
+    ],
+    ImpactedRelatedRepos: [
+      {
+        RelatedRepo: 'engine-project',
+        RelatedRepoID: 2203,
+        RelatedRepoName: 'org/integration',
+        CallSite: '__route__POST__/v1/sms/send-otp',
+        EdgeType: 'CROSS_HTTP_CALLS',
+      },
+    ],
+    ImpactedRepoChains: [
+      {
+        Hops: [
+          {
+            RelatedRepo: 'engine-project',
+            RelatedRepoID: 2203,
+            RelatedRepoName: 'org/integration',
+            CallSite: '__route__POST__/v1/sms/send-otp',
+            EdgeType: 'CROSS_HTTP_CALLS',
+          },
+          {
+            RelatedRepo: 'engine-project-2',
+            RelatedRepoID: 2204,
+            RelatedRepoName: 'org/consumer',
+            CallSite: '__route__POST__/v1/notify',
+            EdgeType: 'CROSS_HTTP_CALLS',
+          },
+        ],
+      },
+    ],
+  };
+
+  it('keeps the caller hierarchy and adds one branch per related repo', () => {
+    const root = buildImpactHierarchy(symbol);
+    const related = root.children.filter((child) => child.isRelatedRepo);
+    expect(related).toHaveLength(2);
+    expect(related.map((r) => r.name).sort()).toEqual(['org/consumer', 'org/integration']);
+
+    const integration = related.find((r) => r.relatedRepoID === 2203)!;
+    expect(integration.children).toHaveLength(1);
+    expect(integration.children[0].isRelatedRoute).toBe(true);
+    expect(integration.children[0].name).toBe('/v1/sms/send-otp');
+  });
+
+  it('dedupes a repo+route that appears in both direct impacts and a chain', () => {
+    const root = buildImpactHierarchy(symbol);
+    const integration = root.children.find((child) => child.relatedRepoID === 2203)!;
+    expect(integration.children).toHaveLength(1);
+  });
+
+  it('detects impact branches and formats route names', () => {
+    expect(hasImpactBranches(symbol)).toBe(true);
+    expect(hasImpactBranches({})).toBe(false);
+    expect(crossRepoRouteLabel('__route__GET__/v1/loconav/vehicle/{}')).toBe('/v1/loconav/vehicle/{}');
   });
 });

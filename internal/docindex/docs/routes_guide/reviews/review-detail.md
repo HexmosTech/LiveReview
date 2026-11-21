@@ -116,9 +116,19 @@ When the repository has **Related Repos** configured, the panel also shows
 **Impacted related repos** chips. Each chip is the related repository's
 `full_name` and opens that repository's LiveReview settings page; its tooltip
 lists the matched routes and whether the match crossed a URI version segment.
+The **Cross-repo impact** signal sentence that names the repository is a link
+to the same settings page, so the line explaining the score is navigable too.
 If the related repo's handlers call further linked repos, a collapsed
 **Extended impact chain** control expands to the path (this repo → B → C) with
 the route at each hop.
+
+The per-symbol **Sunburst** and **Flamegraph** charts draw the call hierarchy
+and, when the symbol reaches a linked repository, that repository as an extra
+blue branch with its matched route(s) beneath it. Blue means cross-repo reach,
+not a caller. Each breakdown opens on the highest-scoring symbol that has
+something to draw (a caller graph or a related repo), so a class with only
+text references does not hide the chart behind a manual step; step with the
+◂/▸ controls to see each symbol.
 
 ### Risk assessment
 
