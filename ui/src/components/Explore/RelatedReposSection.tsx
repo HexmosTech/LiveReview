@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { LuExternalLink, LuSettings } from 'react-icons/lu';
-import { Button, Icons, SingleSelectField, Spinner, Tooltip } from '../UIPrimitives';
+import { Button, Icons, Spinner, Tooltip } from '../UIPrimitives';
 import ProviderIcon from '../ProviderIcon';
 import {
   addRelatedRepository,
@@ -18,6 +18,96 @@ import { Repository } from '../../types/explore';
 // 20 pages = 4000 repos) - a safety cap, not an expected org size.
 const MAX_CANDIDATE_PAGES = 20;
 
+interface RepoPickerOption {
+  value: string;
+  label: string;
+}
+
+// Checkbox multi-picker for the "link repos" row below. Deliberately not the
+// shared MultiSelectField/MultiSelectPanel in UIPrimitives - those implement
+// *filter* semantics, where an empty selection means "all selected" (the
+// natural default for "no filter applied = show everything"). That's the
+// wrong default here: an empty pick must mean "nothing chosen yet", not
+// "every candidate repo", or clicking Add with nothing checked would link
+// every repo in the org.
+const RepoMultiPicker: React.FC<{
+  options: RepoPickerOption[];
+  value: string[];
+  onChange: (next: string[]) => void;
+  placeholder: string;
+}> = ({ options, value, onChange, placeholder }) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const selectedSet = new Set(value);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClickOutside = (ev: MouseEvent) => {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(ev.target as Node)) { setOpen(false); setQuery(''); }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [open]);
+
+  const toggle = (target: string) => {
+    const next = new Set(selectedSet);
+    if (next.has(target)) next.delete(target);
+    else next.add(target);
+    onChange(Array.from(next));
+  };
+
+  const visibleOptions = query
+    ? options.filter((o) => o.label.toLowerCase().includes(query.trim().toLowerCase()))
+    : options;
+  const summary = value.length === 0 ? placeholder : `${value.length} repositor${value.length === 1 ? 'y' : 'ies'} selected`;
+
+  return (
+    <div ref={rootRef} className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Choose repositories to link"
+        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2.5 text-left text-sm text-white hover:border-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-400"
+      >
+        <span className="flex items-center justify-between gap-2">
+          <span className={value.length === 0 ? 'truncate text-slate-400' : 'truncate'}>{summary}</span>
+          <span className="text-slate-400">▾</span>
+        </span>
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-1 w-full min-w-[14rem] max-h-64 overflow-y-auto rounded-lg border border-slate-600 bg-slate-800 shadow-xl p-2 space-y-1">
+          <input
+            autoFocus
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search..."
+            aria-label="Search repositories"
+            className="sticky top-0 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500/50 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+          />
+          {visibleOptions.length === 0 && <p className="px-2 py-1.5 text-xs text-slate-500">No matches</p>}
+          {visibleOptions.map((o) => (
+            <label
+              key={o.value}
+              className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-200 hover:bg-slate-700"
+            >
+              <input
+                type="checkbox"
+                checked={selectedSet.has(o.value)}
+                onChange={() => toggle(o.value)}
+                className="accent-blue-500"
+              />
+              <span className="truncate">{o.label}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Repository settings → Related Repos: other repos (any connected provider)
 // whose code graph should be linked with this one for cross-repo blast-radius
 // context (see docs/multi-repo-blast-radius-plan.md). Mirrors RepoCacheSection's
@@ -30,7 +120,7 @@ const RelatedReposSection: React.FC<{ repo: Repository }> = ({ repo }) => {
   const [error, setError] = useState(false);
   const [candidates, setCandidates] = useState<Repository[]>([]);
   const [candidatesError, setCandidatesError] = useState(false);
-  const [picked, setPicked] = useState('');
+  const [picked, setPicked] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<number | null>(null);
 
@@ -73,15 +163,21 @@ const RelatedReposSection: React.FC<{ repo: Repository }> = ({ repo }) => {
     .map((c) => ({ value: String(c.id), label: `${c.full_name} (${c.provider})` }));
 
   const add = async () => {
-    if (!picked) return;
+    if (picked.length === 0) return;
     setAdding(true);
     try {
-      await addRelatedRepository(repo.id, Number(picked));
-      if (mountedRef.current) setPicked('');
-      notify.success('Related repository added');
+      const results = await Promise.allSettled(picked.map((id) => addRelatedRepository(repo.id, Number(id))));
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      const succeeded = results.length - failed;
+      if (mountedRef.current) setPicked([]);
+      if (failed === 0) {
+        notify.success(succeeded === 1 ? 'Related repository added' : `${succeeded} related repositories added`);
+      } else if (succeeded > 0) {
+        notify.error(`Added ${succeeded}, but failed to add ${failed}`);
+      } else {
+        notify.error('Failed to add related repositories');
+      }
       loadRelated();
-    } catch (e: any) {
-      notify.error(e?.message || 'Failed to add related repository');
     } finally {
       if (mountedRef.current) setAdding(false);
     }
@@ -169,17 +265,9 @@ const RelatedReposSection: React.FC<{ repo: Repository }> = ({ repo }) => {
             )}
             <div className="flex items-center gap-2">
               <div className="flex-1">
-                <SingleSelectField
-                  label="repository"
-                  options={options}
-                  value={picked}
-                  onChange={setPicked}
-                  placeholder="Choose a repository to link"
-                  searchable
-                  allowClear={false}
-                />
+                <RepoMultiPicker options={options} value={picked} onChange={setPicked} placeholder="Choose repositories to link" />
               </div>
-              <Button variant="primary" size="md" icon={<Icons.Add />} onClick={add} isLoading={adding} disabled={!picked || adding}>
+              <Button variant="primary" size="md" icon={<Icons.Add />} onClick={add} isLoading={adding} disabled={picked.length === 0 || adding}>
                 Add
               </Button>
             </div>
