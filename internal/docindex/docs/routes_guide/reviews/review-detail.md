@@ -126,6 +126,13 @@ If the related repo's handlers call further linked repos, a collapsed
 **Extended impact chain** control expands to the path (this repo → B → C) with
 the route at each hop.
 
+The same cards/routes also appear for CLI-originated reviews (`lrc review`):
+the CLI matches its own diff's outbound calls against the related repositories'
+indexes and uploads the enriched report, so the hosted page shows identical
+data. In the local `lrc` review UI, the repository name links to the provider's
+web page (there is no in-app Explore page locally); everything else — visible
+routes, `show all`, badges, chains, blue chart branches — matches this page.
+
 The per-symbol **Sunburst** and **Flamegraph** charts draw the call hierarchy
 and, when the symbol reaches a linked repository, that repository as an extra
 blue branch with its matched route(s) beneath it. Blue means cross-repo reach,

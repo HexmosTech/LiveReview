@@ -78,6 +78,25 @@ func (c *Checkout) RecordIndex(project string) error {
 	return os.WriteFile(filepath.Join(filepath.Dir(c.Dir), ".index"), []byte(project), 0o644)
 }
 
+// ProjectIndex returns the codebase-memory-mcp project name previously
+// recorded for r's cache entry. Callers use it to reuse an existing index
+// without re-indexing or even touching the checkout.
+func ProjectIndex(root string, r Repo) (string, bool) {
+	entry, err := EntryDir(root, r)
+	if err != nil {
+		return "", false
+	}
+	data, err := os.ReadFile(filepath.Join(entry, ".index"))
+	if err != nil {
+		return "", false
+	}
+	project := strings.TrimSpace(string(data))
+	if project == "" {
+		return "", false
+	}
+	return project, true
+}
+
 // EntrySize is the cached repo plus its graph index (the index is usually the bigger part).
 func EntrySize(root, entry string) int64 {
 	size := dirSize(entry)

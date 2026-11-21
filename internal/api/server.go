@@ -1244,6 +1244,16 @@ func (s *Server) setupRoutes() {
 	// git-lrc's blast-radius report.
 	diffReviewGroup.POST("/:review_id/artifacts/:artifact_type", s.PutDiffReviewArtifact)
 	diffReviewGroup.GET("/:review_id/artifacts/:artifact_type", s.GetDiffReviewArtifact)
+	// Cross-repo route matching for a locally-scored CLI review. Read-only,
+	// but POST because it carries the touched symbols' outbound call table;
+	// the handler records the query explicitly so the audit row is semantic.
+	s.audited(diffReviewGroup, echo.POST, "/:review_id/cross-repo/matches", auditlog.Spec{
+		Action:          auditlog.ActionRepositoryCrossRepoQuery,
+		Category:        auditlog.CategoryRepository,
+		ResourceType:    "review",
+		ResourceIDParam: "review_id",
+		Severity:        auditlog.SeverityInfo,
+	}, s.CrossRepoMatches)
 	// Offline-first sync target for git-lrc's post-commit queue (see
 	// AGENTS.md "Porting from git-lrc"): records which commit a staged
 	// review ended up in, once that commit actually happens.

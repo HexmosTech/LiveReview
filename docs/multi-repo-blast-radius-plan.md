@@ -156,3 +156,39 @@ chain is not drawn twice.
 
 The panel also opens on the highest-scoring symbol that has something to draw
 (callers or related repos), instead of a class that only has text references.
+
+## CLI reviews (git-lrc)
+
+A review submitted by `lrc` has no server-side PR checkout and often contains
+uncommitted code, so the server-side `cross_repo_link` worker deliberately skips
+it (`trigger_type=cli_diff`). Instead, the CLI and server split the work at the
+one boundary only the CLI can see:
+
+1. The CLI scores its own checkout locally as usual (one index, unchanged), then
+   queries its own graph for the touched symbols' outbound `HTTP_CALLS`.
+2. It sends those call sites to
+   `POST /api/v1/diff-review/:review_id/cross-repo/matches`
+   (see `internal/api/cross_repo_matches.go`).
+3. The server resolves the review's own repository from the optional
+   `repo_remote_url` captured at create time (falling back to
+   `reviews.repository`), walks `repository_relations` with the same bounded BFS,
+   and reuses the related repos' cached graphs. **No related repository is
+   cloned or indexed on the developer's machine**, and an existing `.index` means
+   no fetch and no reindex. A checkout is only created when a related repo has
+   never been seen at all, exactly like a PR review's first pass.
+4. The shared `internal/blastradius/crossrepolink` package matches exact paths
+   (method-aware when both sides know the method) and version-alias paths, and
+   builds the same capped chains as the server worker.
+5. `lrc` folds the result into its report with `blastradius.RecordCrossRepoImpact`
+   / `RecordCrossRepoChains`, renormalizes, publishes it to the local UI, and
+   uploads the enriched artifact through the existing sync channel. The hosted
+   page then renders the same cards/routes without any extra work.
+
+The endpoint is read-only (it may warm the repo cache once), bounded (≤500
+symbols, ≤50 calls/symbol, 2 MB body, ≤2,000 impacts), and every failure is a
+diagnostic: the baseline report is never lost. Cross-repo matching covers the
+same HTTP-route subset as the existing version-alias fallback; engine-native
+`CROSS_ASYNC_*` / gRPC / GraphQL edges remain a server-worker-only capability.
+
+`lrc review --cross-repo=false` disables it; `--repo-url` overrides the remote
+used to resolve the repository; `--save-blast-radius` writes the final report.

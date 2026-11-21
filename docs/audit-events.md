@@ -97,6 +97,7 @@ Generated from `internal/auditlog/catalog.go`.
 | `repository.delete` | `repository` | repository | warning | Repository removed | A repository was removed. |
 | `repository.relation.add` | `repository` | repository | info | Related repo added | A repository was linked as related, for cross-repo blast-radius context. |
 | `repository.relation.remove` | `repository` | repository | info | Related repo removed | A related-repo link was removed. |
+| `repository.cross_repo.query` | `repository` | review | info | Cross-repo impact queried | A local review asked for route matches in its related repositories. |
 | `repository.sync` | `repository` | repository | info | Repository synced | A repository sync ran. |
 | `repository.update` | `repository` | repository | info | Repository updated | A repository's settings were changed. |
 | `review.cancel` | `review` | review | warning | Review cancelled | A running review was cancelled. |

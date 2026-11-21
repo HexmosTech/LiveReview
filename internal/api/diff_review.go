@@ -36,6 +36,11 @@ type DiffReviewRequest struct {
 	RepoName      string      `json:"repo_name"`
 	BranchName    string      `json:"branch_name"`
 	CommitRefs    []CommitRef `json:"commit_refs,omitempty"`
+	// RepoRemoteURL is the local git remote URL (origin) the CLI reviewed.
+	// It lets cross-repo matching resolve a CLI review (whose repository
+	// column is just the checkout directory's basename) to a connected
+	// repositories row, without trusting a client-supplied id.
+	RepoRemoteURL string `json:"repo_remote_url,omitempty"`
 }
 
 // CommitRef identifies a commit or commit range that a review's diff
@@ -112,6 +117,9 @@ func (s *Server) DiffReview(c echo.Context) error {
 	log.Printf("[DiffReview] Creating review with: repoName=%s, branchName=%s, userEmail=%s, orgID=%d, friendlyName=%s, authorName=%s, authorUsername=%s",
 		repoName, branchName, userEmail, orgID, friendlyName, authorName, authorUsername)
 	initialMeta := map[string]interface{}{"source": "diff-review"}
+	if remote := strings.TrimSpace(req.RepoRemoteURL); remote != "" {
+		initialMeta["repo_remote_url"] = remote
+	}
 	reviewRecord, err := rm.CreateReviewWithOrg(repoName, branchName, "", "", "cli_diff", userEmail, "cli", nil, initialMeta, orgID, friendlyName, authorName, authorUsername, nil)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to create review record")

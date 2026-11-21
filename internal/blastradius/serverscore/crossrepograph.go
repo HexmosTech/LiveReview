@@ -21,6 +21,7 @@ import (
 type RouteNode struct {
 	QualifiedName string
 	Name          string
+	Method        string
 	FilePath      string
 }
 
@@ -28,6 +29,7 @@ type RouteNode struct {
 type OutboundRoute struct {
 	Name          string
 	QualifiedName string
+	Method        string
 }
 
 // RepoGraph is the slice of one project's knowledge graph the cross-repo
@@ -54,7 +56,7 @@ func LoadRepoGraph(ctx context.Context, project string) (*RepoGraph, error) {
 	c := &client.Client{Binary: binary, Project: project}
 	g := &RepoGraph{Project: project, Handlers: map[string][]string{}, Outbound: map[string][]OutboundRoute{}}
 
-	qr, err := c.QueryGraph(ctx, "MATCH (r) WHERE r.label='Route' RETURN r.qualified_name, r.name, r.file_path", 0)
+	qr, err := c.QueryGraph(ctx, "MATCH (r) WHERE r.label='Route' RETURN r.qualified_name, r.name, r.method, r.file_path", 0)
 	if err != nil {
 		return nil, fmt.Errorf("serverscore: load routes for %s: %w", project, err)
 	}
@@ -62,11 +64,15 @@ func LoadRepoGraph(ctx context.Context, project string) (*RepoGraph, error) {
 		if len(row) < 2 {
 			continue
 		}
-		filePath := ""
+		method := ""
 		if len(row) >= 3 {
-			filePath = row[2]
+			method = row[2]
 		}
-		g.Routes = append(g.Routes, RouteNode{QualifiedName: row[0], Name: row[1], FilePath: filePath})
+		filePath := ""
+		if len(row) >= 4 {
+			filePath = row[3]
+		}
+		g.Routes = append(g.Routes, RouteNode{QualifiedName: row[0], Name: row[1], Method: method, FilePath: filePath})
 	}
 
 	qr, err = c.QueryGraph(ctx, "MATCH (f)-[:HANDLES]->(r) RETURN r.qualified_name, f.qualified_name", 0)
@@ -80,7 +86,7 @@ func LoadRepoGraph(ctx context.Context, project string) (*RepoGraph, error) {
 		g.Handlers[row[0]] = append(g.Handlers[row[0]], row[1])
 	}
 
-	qr, err = c.QueryGraph(ctx, "MATCH (f)-[:HTTP_CALLS]->(r) RETURN f.qualified_name, r.name, r.qualified_name", 0)
+	qr, err = c.QueryGraph(ctx, "MATCH (f)-[:HTTP_CALLS]->(r) RETURN f.qualified_name, r.name, r.qualified_name, r.method", 0)
 	if err != nil {
 		return nil, fmt.Errorf("serverscore: load HTTP calls for %s: %w", project, err)
 	}
@@ -92,7 +98,11 @@ func LoadRepoGraph(ctx context.Context, project string) (*RepoGraph, error) {
 		if len(row) >= 3 {
 			qn = row[2]
 		}
-		g.Outbound[row[0]] = append(g.Outbound[row[0]], OutboundRoute{Name: row[1], QualifiedName: qn})
+		method := ""
+		if len(row) >= 4 {
+			method = row[3]
+		}
+		g.Outbound[row[0]] = append(g.Outbound[row[0]], OutboundRoute{Name: row[1], QualifiedName: qn, Method: method})
 	}
 	return g, nil
 }
