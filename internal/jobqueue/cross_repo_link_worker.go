@@ -201,14 +201,14 @@ func (w *CrossRepoLinkWorker) Work(ctx context.Context, job *river.Job[CrossRepo
 		report.CrossRepoDiagnostics = append(report.CrossRepoDiagnostics, diagnostic("main_graph", report.Project, gerr))
 	} else {
 		graphs[report.Project] = mainGraph
-		mergeImpacts(impactsBySymbol, versionAliasedImpacts(mainGraph, graphs, symbolQNs))
+		mergeImpacts(impactsBySymbol, versionAliasedImpacts(mainGraph, graphs, symbolQNs, exactCallNorms(impactsBySymbol)))
 	}
 	// Direct-only fallback: one symbol query + one declared-routes query per
 	// target. It does not need HANDLES or a full graph read, so a partial graph
 	// failure cannot silently suppress a version-aliased direct impact. Run it
 	// even when exact matches exist: a review can touch symbols with exact
 	// matches and symbols that only match across a version segment.
-	if direct, derr := directVersionAliasedImpacts(ctx, report.Project, symbolQNs, targetProjects); derr != nil {
+	if direct, derr := directVersionAliasedImpacts(ctx, report.Project, symbolQNs, targetProjects, exactCallNorms(impactsBySymbol)); derr != nil {
 		logger.Warn().Err(derr).Msg("[cross_repo_link] direct version-alias fallback failed")
 		report.CrossRepoDiagnostics = append(report.CrossRepoDiagnostics, diagnostic("direct_fallback", report.Project, derr))
 	} else {
@@ -525,7 +525,7 @@ func (w *CrossRepoLinkWorker) loadRepoCredentials(ctx context.Context, orgID, re
 // /v1/sms/send-otp. Path-only matching cannot distinguish those without the
 // call's host, so the impact is marked MatchKind=version-alias and carries
 // lower confidence instead of being silently dropped.
-func versionAliasedImpacts(main *serverscore.RepoGraph, graphs map[string]*serverscore.RepoGraph, symbolQNs []string) map[string][]blastradius.CrossRepoImpact {
+func versionAliasedImpacts(main *serverscore.RepoGraph, graphs map[string]*serverscore.RepoGraph, symbolQNs []string, exactBySymbol map[string]map[string]bool) map[string][]blastradius.CrossRepoImpact {
 	out := map[string][]blastradius.CrossRepoImpact{}
 	if main == nil {
 		return out
@@ -539,6 +539,13 @@ func versionAliasedImpacts(main *serverscore.RepoGraph, graphs map[string]*serve
 		for _, call := range calls {
 			callNorm, callVersioned := serverscore.NormalizeRoutePath(call.Name)
 			if callNorm == "" || callNorm == "/" {
+				continue
+			}
+			// The engine already found an exact target for this call; do not
+			// also claim a version-aliased target that merely shares the path.
+			// Without this, a shared route like /e-kyc/read-aadhaar matches
+			// every linked repo that declares it, not just the real callee.
+			if exactBySymbol[qn][callNorm] {
 				continue
 			}
 			for project, g := range graphs {
@@ -569,10 +576,44 @@ func versionAliasedImpacts(main *serverscore.RepoGraph, graphs map[string]*serve
 	return out
 }
 
+// routeNameFromCallSite turns the engine's route-node qualified name
+// (__route__POST__/v1/orders) into the route name path (/v1/orders).
+func routeNameFromCallSite(callSite string) string {
+	const prefix = "__route__"
+	if !strings.HasPrefix(callSite, prefix) {
+		return callSite
+	}
+	rest := strings.TrimPrefix(callSite, prefix)
+	if i := strings.Index(rest, "__"); i >= 0 {
+		return rest[i+2:]
+	}
+	return callSite
+}
+
+// exactCallNorms records, per symbol, the normalized call paths the exact
+// engine pass already resolved. The version-alias fallback skips those paths
+// so it cannot add a second, path-colliding repo as a false positive.
+func exactCallNorms(impactsBySymbol map[string][]blastradius.CrossRepoImpact) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for qn, impacts := range impactsBySymbol {
+		for _, im := range impacts {
+			norm, _ := serverscore.NormalizeRoutePath(routeNameFromCallSite(im.CallSite))
+			if norm == "" || norm == "/" {
+				continue
+			}
+			if out[qn] == nil {
+				out[qn] = map[string]bool{}
+			}
+			out[qn][norm] = true
+		}
+	}
+	return out
+}
+
 // directVersionAliasedImpacts builds the same version-alias matches without
 // loading full RepoGraphs (HANDLES/route scans), using only the touched
 // symbols' outbound routes and each target's declared routes.
-func directVersionAliasedImpacts(ctx context.Context, mainProject string, symbolQNs, targetProjects []string) (map[string][]blastradius.CrossRepoImpact, error) {
+func directVersionAliasedImpacts(ctx context.Context, mainProject string, symbolQNs, targetProjects []string, exactBySymbol map[string]map[string]bool) (map[string][]blastradius.CrossRepoImpact, error) {
 	calls, err := serverscore.HTTPCallRouteNamesForSymbols(ctx, mainProject, symbolQNs)
 	if err != nil {
 		return nil, err
@@ -591,7 +632,7 @@ func directVersionAliasedImpacts(ctx context.Context, mainProject string, symbol
 		}
 		graphs[project] = &serverscore.RepoGraph{Project: project, Routes: routes}
 	}
-	return versionAliasedImpacts(main, graphs, symbolQNs), nil
+	return versionAliasedImpacts(main, graphs, symbolQNs, exactBySymbol), nil
 }
 
 func diagnostic(kind, project string, err error) string {

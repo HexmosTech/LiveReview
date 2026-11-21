@@ -56,13 +56,43 @@ func TestVersionAliasedImpacts_MatchesVersionedCallToUnversionedRoute(t *testing
 			{QualifiedName: "__route__POST__/unrelated", Name: "/unrelated", FilePath: "src/other.controller.ts"},
 		},
 	}
-	got := versionAliasedImpacts(main, map[string]*serverscore.RepoGraph{"main": main, "target": target}, []string{"main.sym"})
+	got := versionAliasedImpacts(main, map[string]*serverscore.RepoGraph{"main": main, "target": target}, []string{"main.sym"}, nil)
 	impacts := got["main.sym"]
 	if len(impacts) != 1 {
 		t.Fatalf("versionAliasedImpacts = %+v, want one match", impacts)
 	}
 	if impacts[0].RelatedRepo != "target" || impacts[0].CallSite != "__route__POST__/sms/send-otp" || impacts[0].MatchKind != "version-alias" {
 		t.Fatalf("unexpected impact: %+v", impacts[0])
+	}
+}
+
+func TestVersionAliasedImpacts_SuppressedWhenExactExists(t *testing.T) {
+	main := &serverscore.RepoGraph{
+		Project: "main",
+		Outbound: map[string][]serverscore.OutboundRoute{
+			"main.sym": {{Name: "/v1/e-kyc/read-aadhaar"}},
+		},
+	}
+	target := &serverscore.RepoGraph{
+		Project: "target",
+		Routes:  []serverscore.RouteNode{{QualifiedName: "__route__POST__/e-kyc/read-aadhaar", Name: "/e-kyc/read-aadhaar", FilePath: "src/e-kyc.controller.ts"}},
+	}
+	exact := map[string]map[string]bool{"main.sym": {"/e-kyc/read-aadhaar": true}}
+	got := versionAliasedImpacts(main, map[string]*serverscore.RepoGraph{"main": main, "target": target}, []string{"main.sym"}, exact)
+	if len(got["main.sym"]) != 0 {
+		t.Fatalf("fallback must not add a path-colliding repo when exact already matched: %+v", got["main.sym"])
+	}
+}
+
+func TestExactCallNorms(t *testing.T) {
+	got := exactCallNorms(map[string][]blastradius.CrossRepoImpact{
+		"sym": {{CallSite: "__route__POST__/v1/e-kyc/read-aadhaar"}},
+	})
+	if !got["sym"]["/e-kyc/read-aadhaar"] {
+		t.Fatalf("exactCallNorms = %+v, want /e-kyc/read-aadhaar", got)
+	}
+	if routeNameFromCallSite("__route__GET__/v1/orders") != "/v1/orders" {
+		t.Fatalf("routeNameFromCallSite = %q", routeNameFromCallSite("__route__GET__/v1/orders"))
 	}
 }
 
@@ -77,7 +107,7 @@ func TestVersionAliasedImpacts_DoesNotMatchSameVersioning(t *testing.T) {
 		Project: "target",
 		Routes:  []serverscore.RouteNode{{QualifiedName: "__route__GET__/v1/orders", Name: "/v1/orders", FilePath: "src/orders.controller.ts"}},
 	}
-	got := versionAliasedImpacts(main, map[string]*serverscore.RepoGraph{"main": main, "target": target}, []string{"main.sym"})
+	got := versionAliasedImpacts(main, map[string]*serverscore.RepoGraph{"main": main, "target": target}, []string{"main.sym"}, nil)
 	if len(got["main.sym"]) != 0 {
 		t.Fatalf("expected no fallback when both sides are versioned: %+v", got["main.sym"])
 	}
