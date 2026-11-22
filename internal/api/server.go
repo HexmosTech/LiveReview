@@ -597,17 +597,52 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// never write to it.
 	logging.InitChatDebugLog() // reads LIVI_DEBUG_LOG at boot
 
+	// Resolve the onnxruntime shared library once, up front, and publish the
+	// path as DBCTX_ONNXRUNTIME_LIB. Both ONNX consumers in this process (the
+	// docindex embedder and dbctx's semantic scorer) need it, and dbctx pins
+	// its own copy of the same upstream download URL - so without this it can
+	// only fail its own fetch when the primary source is unavailable. Letting
+	// one component resolve it means only one place ever downloads, and dbctx
+	// reuses the result.
+	//
+	// Runs in the background: a first-run fetch (primary source, then mirror)
+	// must not delay server start. dbctx's index build waits for it because
+	// its semantic phase cannot work without the library.
+	runtimeLibReady := make(chan struct{}, 1)
+	go func() {
+		defer func() { runtimeLibReady <- struct{}{} }()
+		libPath, err := docindex.EnsureRuntimeLibrary()
+		if err != nil {
+			fmt.Printf("Warning: onnxruntime library unavailable: %v (semantic search and product-guidance doc retrieval will be degraded)\n", err)
+			return
+		}
+		if err := os.Setenv(docindex.OnnxRuntimeLibEnv, libPath); err != nil {
+			fmt.Printf("Warning: could not set %s: %v (dbctx will try its own download)\n", docindex.OnnxRuntimeLibEnv, err)
+		}
+	}()
+
 	// Starts building the dbctx schema index in the background (non-blocking -
 	// see schema_index.go). It replaces the hand-written table listing in the
 	// analytics system prompt; a failed/slow build degrades to the static
 	// fallback rather than blocking startup or a chat turn indefinitely.
-	//
-	// Started before docindex: both init the same process-wide onnxruntime env
-	// (allowed once); dbctx has no guard against docindex winning that race.
-	if dsn, err := database.LoadDatabaseURL(); err == nil {
-		mcpagent.InitSchemaIndex(dsn)
+	dsn, dsnErr := database.LoadDatabaseURL()
+	if dsnErr != nil {
+		fmt.Printf("Warning: dbctx schema index not started: %v (analytics prompts will use the static fallback schema)\n", dsnErr)
 	} else {
-		fmt.Printf("Warning: dbctx schema index not started: %v (analytics prompts will use the static fallback schema)\n", err)
+		go func() {
+			// Wait for the shared-library hand-off above, but not forever: a
+			// hanging (not failing) source must not keep the schema index from
+			// ever starting. Both libraries guard their process-wide
+			// onnxruntime environment with ort.IsInitialized(), so whichever
+			// initializes first wins and the other reuses it - no ordering
+			// constraint beyond the library path.
+			select {
+			case <-runtimeLibReady:
+			case <-time.After(20 * time.Second):
+				fmt.Printf("Warning: onnxruntime library hand-off still pending after 20s; starting dbctx schema index anyway\n")
+			}
+			mcpagent.InitSchemaIndex(dsn)
+		}()
 	}
 
 	// Starts building the product-guidance doc index (chromem-go + ONNX embedder)

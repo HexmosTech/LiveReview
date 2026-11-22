@@ -5,9 +5,11 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"bufio"
+	"compress/bzip2"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -37,9 +39,16 @@ const (
 	outputHiddenName  = "last_hidden_state"
 	batchSize         = 16
 
+	// onnxRuntimeVersion is the release the primary (Microsoft) sources pin.
 	onnxRuntimeVersion = "1.29.0"
-	CacheDirEnv        = "DBCTX_CACHE_DIR"
-	OnnxRuntimeLibEnv  = "DBCTX_ONNXRUNTIME_LIB"
+	// onnxRuntimeMirrorVersion is the release the fallback mirror pins. It is
+	// deliberately not tied to onnxRuntimeVersion: the mirror's v1.29.0 assets
+	// have no windows/arm64 shared library, and its newer releases are
+	// backwards compatible with the C API this process is compiled against.
+	onnxRuntimeMirrorVersion = "1.31.0"
+
+	CacheDirEnv       = "DBCTX_CACHE_DIR"
+	OnnxRuntimeLibEnv = "DBCTX_ONNXRUNTIME_LIB"
 )
 
 type modelAsset struct {
@@ -67,60 +76,125 @@ type archiveKind int
 
 const (
 	archiveTarGz archiveKind = iota
+	archiveTarBz2
 	archiveZip
 )
 
-type runtimeAsset struct {
+// runtimeSource is one place a prebuilt onnxruntime shared library can be
+// fetched from. Each source carries its own pinned checksum and archive layout
+// because mirrors repackage the upstream release differently: the official
+// Microsoft tarballs keep a version-suffixed library under
+// onnxruntime-<platform>-<version>/, while csukuangfj/onnxruntime-libs ships
+// plain .zip/.tar.bz2 archives with an unversioned library name and a
+// build-configuration suffix in the directory name.
+type runtimeSource struct {
+	// Version is the onnxruntime release the archive was built from. It also
+	// names the cache subdirectory, so a library installed from one source is
+	// never mistaken for another version's.
+	Version    string
 	URL        string
 	SHA256     string
 	Size       int64
 	Kind       archiveKind
 	MemberPath string
-	LocalName  string
 }
 
-const ortRelBase = "https://github.com/microsoft/onnxruntime/releases/download/v" + onnxRuntimeVersion + "/"
+// runtimeAsset is everything needed to provide one platform's shared library,
+// with its sources in preference order: primary first, mirrors after.
+type runtimeAsset struct {
+	LocalName string
+	Sources   []runtimeSource
+}
+
+const (
+	// Primary: Microsoft's own release assets.
+	ortRelBase = "https://github.com/microsoft/onnxruntime/releases/download/v" + onnxRuntimeVersion + "/"
+	// Fallback: csukuangfj/onnxruntime-libs, an actively maintained rebuild of
+	// the same release assets. Kept because microsoft/onnxruntime (and its
+	// release downloads) went 404 in late 2026; without this, every fresh
+	// install silently loses the ONNX-backed features.
+	ortMirrorRelBase = "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v" + onnxRuntimeMirrorVersion + "/"
+)
+
+func ortOfficial(archive, member, sha256 string, size int64, kind archiveKind) runtimeSource {
+	return runtimeSource{
+		Version:    onnxRuntimeVersion,
+		URL:        ortRelBase + archive,
+		SHA256:     sha256,
+		Size:       size,
+		Kind:       kind,
+		MemberPath: member,
+	}
+}
+
+func ortMirror(archive, member, sha256 string, size int64, kind archiveKind) runtimeSource {
+	return runtimeSource{
+		Version:    onnxRuntimeMirrorVersion,
+		URL:        ortMirrorRelBase + archive,
+		SHA256:     sha256,
+		Size:       size,
+		Kind:       kind,
+		MemberPath: member,
+	}
+}
 
 var runtimeAssets = map[string]runtimeAsset{
 	"linux/amd64": {
-		URL:        ortRelBase + "onnxruntime-linux-x64-1.29.0.tgz",
-		SHA256:     "c3fddc4f139a045b0c4902c57410f0694f1c2fdf9b6939fbe38b1aeae7cd14ba",
-		Size:       11082880,
-		Kind:       archiveTarGz,
-		MemberPath: "onnxruntime-linux-x64-1.29.0/lib/libonnxruntime.so.1.29.0",
-		LocalName:  "libonnxruntime.so",
+		LocalName: "libonnxruntime.so",
+		Sources: []runtimeSource{
+			ortOfficial("onnxruntime-linux-x64-1.29.0.tgz",
+				"onnxruntime-linux-x64-1.29.0/lib/libonnxruntime.so.1.29.0",
+				"c3fddc4f139a045b0c4902c57410f0694f1c2fdf9b6939fbe38b1aeae7cd14ba", 11082880, archiveTarGz),
+			ortMirror("onnxruntime-linux-x64-glibc2_17-Release-1.31.0.zip",
+				"onnxruntime-linux-x64-glibc2_17-Release-1.31.0/lib/libonnxruntime.so",
+				"afaf59e5619372e40b550b562e85dc802be0ea56859cb9ff3d823636a28f5bcc", 11303509, archiveZip),
+		},
 	},
 	"linux/arm64": {
-		URL:        ortRelBase + "onnxruntime-linux-aarch64-1.29.0.tgz",
-		SHA256:     "e1799098ebc054b370f6176a450f158720f297818c613e5dc99b92e2ec82346f",
-		Size:       10027600,
-		Kind:       archiveTarGz,
-		MemberPath: "onnxruntime-linux-aarch64-1.29.0/lib/libonnxruntime.so.1.29.0",
-		LocalName:  "libonnxruntime.so",
+		LocalName: "libonnxruntime.so",
+		Sources: []runtimeSource{
+			ortOfficial("onnxruntime-linux-aarch64-1.29.0.tgz",
+				"onnxruntime-linux-aarch64-1.29.0/lib/libonnxruntime.so.1.29.0",
+				"e1799098ebc054b370f6176a450f158720f297818c613e5dc99b92e2ec82346f", 10027600, archiveTarGz),
+			ortMirror("onnxruntime-linux-aarch64-glibc2_17-Release-1.31.0.zip",
+				"onnxruntime-linux-aarch64-glibc2_17-Release-1.31.0/lib/libonnxruntime.so",
+				"f05f18c4d17514ebba8959faf8cf694073183a1efcad05ed76d88dfcbf78f7ce", 14612767, archiveZip),
+		},
 	},
 	"darwin/arm64": {
-		URL:        ortRelBase + "onnxruntime-osx-arm64-1.29.0.tgz",
-		SHA256:     "d0706fc34f315d8c88639d0a8c81f2e09e815f282cabed3493c06a054352cf92",
-		Size:       41578864,
-		Kind:       archiveTarGz,
-		MemberPath: "onnxruntime-osx-arm64-1.29.0/lib/libonnxruntime.1.29.0.dylib",
-		LocalName:  "libonnxruntime.dylib",
+		LocalName: "libonnxruntime.dylib",
+		Sources: []runtimeSource{
+			ortOfficial("onnxruntime-osx-arm64-1.29.0.tgz",
+				"onnxruntime-osx-arm64-1.29.0/lib/libonnxruntime.1.29.0.dylib",
+				"d0706fc34f315d8c88639d0a8c81f2e09e815f282cabed3493c06a054352cf92", 41578864, archiveTarGz),
+			ortMirror("onnxruntime-osx-arm64-1.31.0.zip",
+				"onnxruntime-osx-arm64-1.31.0/lib/libonnxruntime.dylib",
+				"60a558189937147849ffc90240f57444198d3f57d7c7cf290e07b2dabd5d90a0", 8838369, archiveZip),
+		},
 	},
 	"windows/amd64": {
-		URL:        ortRelBase + "onnxruntime-win-x64-1.29.0.zip",
-		SHA256:     "c9b4b7086b529ad814f428c1bad028e20a25d7dc0699836775faace4ab5b78b2",
-		Size:       79645520,
-		Kind:       archiveZip,
-		MemberPath: "onnxruntime-win-x64-1.29.0/lib/onnxruntime.dll",
-		LocalName:  "onnxruntime.dll",
+		LocalName: "onnxruntime.dll",
+		Sources: []runtimeSource{
+			ortOfficial("onnxruntime-win-x64-1.29.0.zip",
+				"onnxruntime-win-x64-1.29.0/lib/onnxruntime.dll",
+				"c9b4b7086b529ad814f428c1bad028e20a25d7dc0699836775faace4ab5b78b2", 79645520, archiveZip),
+			ortMirror("onnxruntime-win-x64-MD-Release-1.31.0.tar.bz2",
+				"onnxruntime-win-x64-MD-Release-1.31.0/lib/onnxruntime.dll",
+				"14076e3cfa720b0a43a0afbd848904d3d6d33e0881d2997c7296b47a54f3cd9d", 7193503, archiveTarBz2),
+		},
 	},
 	"windows/arm64": {
-		URL:        ortRelBase + "onnxruntime-win-arm64-1.29.0.zip",
-		SHA256:     "a094a49c3ced0f9fca554647cc7566ae99d93a63a8ce6bf47975561c2de7608e",
-		Size:       81679033,
-		Kind:       archiveZip,
-		MemberPath: "onnxruntime-win-arm64-1.29.0/lib/onnxruntime.dll",
-		LocalName:  "onnxruntime.dll",
+		LocalName: "onnxruntime.dll",
+		Sources: []runtimeSource{
+			ortOfficial("onnxruntime-win-arm64-1.29.0.zip",
+				"onnxruntime-win-arm64-1.29.0/lib/onnxruntime.dll",
+				"a094a49c3ced0f9fca554647cc7566ae99d93a63a8ce6bf47975561c2de7608e", 81679033, archiveZip),
+			// The mirror has no dynamic windows/arm64 build for 1.29.0, only
+			// static libs; 1.31.0 is the first release that ships one.
+			ortMirror("onnxruntime-win-arm64-MD-Release-1.31.0.tar.bz2",
+				"onnxruntime-win-arm64-MD-Release-1.31.0/lib/onnxruntime.dll",
+				"283eaa9aa28cc9c9583b3b1e9ae117da2ecc64b26012e744d745f7c56e727551", 6950618, archiveTarBz2),
+		},
 	},
 }
 
@@ -248,6 +322,15 @@ func EnsureModel() (modelPath, vocabPath string, err error) {
 	return modelPath, vocabPath, nil
 }
 
+// runtimeLibMu serializes resolution so the two startup consumers (the
+// docindex build and the server's hand-off to dbctx) cannot both download the
+// same archive. It is not held across unrelated work.
+var runtimeLibMu sync.Mutex
+
+// EnsureRuntimeLibrary returns the onnxruntime shared library for this
+// platform, downloading it if necessary. DBCTX_ONNXRUNTIME_LIB always wins;
+// otherwise an already-cached copy is preferred over the network, and the
+// platform's sources are tried in order until one works.
 func EnsureRuntimeLibrary() (string, error) {
 	if lib := os.Getenv(OnnxRuntimeLibEnv); lib != "" {
 		if !fileExists(lib) {
@@ -255,6 +338,9 @@ func EnsureRuntimeLibrary() (string, error) {
 		}
 		return lib, nil
 	}
+
+	runtimeLibMu.Lock()
+	defer runtimeLibMu.Unlock()
 
 	asset, err := currentPlatformRuntimeAsset()
 	if err != nil {
@@ -264,21 +350,59 @@ func EnsureRuntimeLibrary() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	libPath := filepath.Join(dir, "onnxruntime", onnxRuntimeVersion, asset.LocalName)
-	if fileMatches(libPath, 0) {
-		return libPath, nil
+	return ensureRuntimeLibrary(asset, dir)
+}
+
+// ensureRuntimeLibrary installs asset's shared library under cacheDir and
+// returns its path. A copy from any already-downloaded source wins over the
+// network; otherwise sources are tried in preference order and the first
+// success is returned. A source that fails (404, checksum mismatch, unreadable
+// archive) moves on to the next one; the joined error is returned only when
+// every source fails.
+func ensureRuntimeLibrary(asset runtimeAsset, cacheDir string) (string, error) {
+	cachedPath := func(src runtimeSource) string {
+		return filepath.Join(cacheDir, "onnxruntime", src.Version, asset.LocalName)
 	}
 
-	archivePath := filepath.Join(dir, "onnxruntime", onnxRuntimeVersion, filepath.Base(asset.URL))
-	if err := downloadToFile(asset.URL, archivePath, asset.SHA256, asset.Size, fmt.Sprintf("onnxruntime %s runtime", onnxRuntimeVersion)); err != nil {
-		return "", err
+	for _, src := range asset.Sources {
+		if p := cachedPath(src); fileMatches(p, 0) {
+			return p, nil
+		}
+	}
+
+	errs := make([]error, 0, len(asset.Sources))
+	for _, src := range asset.Sources {
+		libPath := cachedPath(src)
+		if err := installRuntimeSource(src, libPath); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		return libPath, nil
+	}
+	if len(errs) == 0 {
+		return "", fmt.Errorf("no onnxruntime library source configured for %s", runtime.GOOS+"/"+runtime.GOARCH)
+	}
+	return "", fmt.Errorf("install onnxruntime %s runtime: %w", asset.LocalName, errors.Join(errs...))
+}
+
+// installRuntimeSource downloads one source's archive to the cache, verifies
+// it against the source's pinned checksum, and extracts the library member to
+// libPath.
+func installRuntimeSource(src runtimeSource, libPath string) error {
+	if err := os.MkdirAll(filepath.Dir(libPath), 0o755); err != nil {
+		return fmt.Errorf("create cache dir: %w", err)
+	}
+	archivePath := filepath.Join(filepath.Dir(libPath), filepath.Base(src.URL))
+	if err := downloadToFile(src.URL, archivePath, src.SHA256, src.Size,
+		fmt.Sprintf("onnxruntime %s runtime", src.Version)); err != nil {
+		return err
 	}
 	defer os.Remove(archivePath)
 
-	if err := extractMember(archivePath, asset.Kind, asset.MemberPath, libPath); err != nil {
-		return "", fmt.Errorf("extract onnxruntime library: %w", err)
+	if err := extractMember(archivePath, src.Kind, src.MemberPath, libPath); err != nil {
+		return fmt.Errorf("extract onnxruntime library from %s: %w", filepath.Base(src.URL), err)
 	}
-	return libPath, nil
+	return nil
 }
 
 func extractMember(archivePath string, kind archiveKind, member, destPath string) error {
@@ -291,6 +415,10 @@ func extractMember(archivePath string, kind archiveKind, member, destPath string
 	switch kind {
 	case archiveTarGz:
 		if err := extractTarGzMember(archivePath, member, tmpDest); err != nil {
+			return err
+		}
+	case archiveTarBz2:
+		if err := extractTarBz2Member(archivePath, member, tmpDest); err != nil {
 			return err
 		}
 	case archiveZip:
@@ -316,7 +444,21 @@ func extractTarGzMember(archivePath, member, destPath string) error {
 	}
 	defer gz.Close()
 
-	tr := tar.NewReader(gz)
+	return extractTarMember(gz, archivePath, member, destPath)
+}
+
+func extractTarBz2Member(archivePath, member, destPath string) error {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	return extractTarMember(bzip2.NewReader(f), archivePath, member, destPath)
+}
+
+func extractTarMember(r io.Reader, archivePath, member, destPath string) error {
+	tr := tar.NewReader(r)
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {

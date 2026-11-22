@@ -320,6 +320,18 @@ ONNX-backed implementation could be swapped in later for one org without
 touching the policy engine. It's just not what satisfies "updates in near
 real time" today — that's what `goml`'s online mode is for.
 
+The native runtime itself is **not** vendored: it is downloaded at first use
+into `~/.dbctx/onnxruntime/<version>/` and loaded with `dlopen`, so a build
+never depends on it. Microsoft's `onnxruntime` GitHub releases went 404 in
+late 2026, so `internal/docindex/embedder.go` now resolves the library from an
+ordered source list: Microsoft's release assets first, then the
+`csukuangfj/onnxruntime-libs` mirror, each with its own pinned SHA-256 and
+archive layout. A cached copy from any source wins over the network, and the
+resolved path is exported as `DBCTX_ONNXRUNTIME_LIB` so dbctx's semantic
+scorer reuses it instead of hitting the same dead URL. If every source fails,
+both semantic features degrade (docindex to no retrieval, dbctx to lexical
+search) rather than failing startup.
+
 ### 4. Static/deterministic gate stage — reuse jq rulesets as-is
 
 No new rule engine. `auto_approve_policies.blocking_ruleset_ids` references
