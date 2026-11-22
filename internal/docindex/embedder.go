@@ -19,8 +19,10 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
+	"github.com/rs/zerolog/log"
 	ort "github.com/yalue/onnxruntime_go"
 	"golang.org/x/text/unicode/norm"
 )
@@ -309,17 +311,33 @@ func EnsureModel() (modelPath, vocabPath string, err error) {
 	modelPath = filepath.Join(modelDir, modelWeights.Name)
 	vocabPath = filepath.Join(modelDir, modelVocab.Name)
 
-	if !fileMatches(modelPath, modelWeights.Size) {
-		if err := downloadToFile(modelWeights.URL, modelPath, modelWeights.SHA256, modelWeights.Size, "bge-small-en-v1.5 model weights"); err != nil {
-			return "", "", err
-		}
+	if err := ensureModelAsset(modelWeights, modelPath, "model weights"); err != nil {
+		return "", "", err
 	}
-	if !fileMatches(vocabPath, modelVocab.Size) {
-		if err := downloadToFile(modelVocab.URL, vocabPath, modelVocab.SHA256, modelVocab.Size, "bge-small-en-v1.5 vocabulary"); err != nil {
-			return "", "", err
-		}
+	if err := ensureModelAsset(modelVocab, vocabPath, "vocabulary"); err != nil {
+		return "", "", err
 	}
 	return modelPath, vocabPath, nil
+}
+
+// ensureModelAsset makes sure one pinned model file is present, logging a cache
+// hit or the download so a later "model unavailable" symptom is explainable
+// from the boot logs alone.
+func ensureModelAsset(asset modelAsset, destPath, label string) error {
+	if fileMatches(destPath, asset.Size) {
+		log.Debug().Str("path", destPath).Int64("bytes", asset.Size).
+			Msgf("docindex: using cached %s", label)
+		return nil
+	}
+	log.Info().Str("url", asset.URL).Str("path", destPath).Int64("bytes", asset.Size).
+		Msgf("docindex: downloading %s", label)
+	start := time.Now()
+	if err := downloadToFile(asset.URL, destPath, asset.SHA256, asset.Size, "bge-small-en-v1.5 "+label); err != nil {
+		return err
+	}
+	log.Info().Str("path", destPath).Dur("elapsed_ms", time.Since(start)).
+		Msgf("docindex: %s ready", label)
+	return nil
 }
 
 // runtimeLibMu serializes resolution so the two startup consumers (the
@@ -327,16 +345,50 @@ func EnsureModel() (modelPath, vocabPath string, err error) {
 // same archive. It is not held across unrelated work.
 var runtimeLibMu sync.Mutex
 
-// EnsureRuntimeLibrary returns the onnxruntime shared library for this
+// RuntimeLibrary describes a resolved onnxruntime shared library, including
+// where it came from - resolution is logged, but callers that want to show the
+// choice in their own startup output can use this instead of re-deriving it.
+type RuntimeLibrary struct {
+	// Path is the shared library file this process will dlopen.
+	Path string
+	// Version is the onnxruntime release the library was built from, or empty
+	// when Path came from DBCTX_ONNXRUNTIME_LIB and its version is unknown.
+	Version string
+	// Source identifies where the library came from: the URL of the release
+	// archive it was extracted from, or OnnxRuntimeLibEnv for an operator-
+	// supplied file.
+	Source string
+	// Cached is true when no download happened for this call.
+	Cached bool
+}
+
+// EnsureRuntimeLibrary returns the path of the onnxruntime shared library for
+// this platform. See ResolveRuntimeLibrary for the source/preference rules.
+func EnsureRuntimeLibrary() (string, error) {
+	lib, err := ResolveRuntimeLibrary()
+	if err != nil {
+		return "", err
+	}
+	return lib.Path, nil
+}
+
+// ResolveRuntimeLibrary returns the onnxruntime shared library for this
 // platform, downloading it if necessary. DBCTX_ONNXRUNTIME_LIB always wins;
 // otherwise an already-cached copy is preferred over the network, and the
-// platform's sources are tried in order until one works.
-func EnsureRuntimeLibrary() (string, error) {
+// platform's sources are tried in order until one works. Every choice it makes
+// (cache hit, source attempted, download, failure, final path) is logged so a
+// later semantic/degradation problem can be traced without re-running
+// instrumented builds.
+func ResolveRuntimeLibrary() (RuntimeLibrary, error) {
+	platform := runtime.GOOS + "/" + runtime.GOARCH
+
 	if lib := os.Getenv(OnnxRuntimeLibEnv); lib != "" {
 		if !fileExists(lib) {
-			return "", fmt.Errorf("%s=%s does not exist", OnnxRuntimeLibEnv, lib)
+			return RuntimeLibrary{}, fmt.Errorf("%s=%s does not exist", OnnxRuntimeLibEnv, lib)
 		}
-		return lib, nil
+		log.Info().Str("path", lib).Str("platform", platform).Str("env", OnnxRuntimeLibEnv).
+			Msg("onnxruntime: using operator-supplied library")
+		return RuntimeLibrary{Path: lib, Source: OnnxRuntimeLibEnv, Cached: true}, nil
 	}
 
 	runtimeLibMu.Lock()
@@ -344,45 +396,63 @@ func EnsureRuntimeLibrary() (string, error) {
 
 	asset, err := currentPlatformRuntimeAsset()
 	if err != nil {
-		return "", err
+		return RuntimeLibrary{}, err
 	}
 	dir, err := CacheDir()
 	if err != nil {
-		return "", err
+		return RuntimeLibrary{}, err
 	}
 	return ensureRuntimeLibrary(asset, dir)
 }
 
 // ensureRuntimeLibrary installs asset's shared library under cacheDir and
-// returns its path. A copy from any already-downloaded source wins over the
-// network; otherwise sources are tried in preference order and the first
-// success is returned. A source that fails (404, checksum mismatch, unreadable
-// archive) moves on to the next one; the joined error is returned only when
-// every source fails.
-func ensureRuntimeLibrary(asset runtimeAsset, cacheDir string) (string, error) {
+// returns it. A copy from any already-downloaded source wins over the network;
+// otherwise sources are tried in preference order and the first success is
+// returned. A source that fails (404, checksum mismatch, unreadable archive)
+// moves on to the next one; the joined error is returned only when every
+// source fails.
+func ensureRuntimeLibrary(asset runtimeAsset, cacheDir string) (RuntimeLibrary, error) {
 	cachedPath := func(src runtimeSource) string {
 		return filepath.Join(cacheDir, "onnxruntime", src.Version, asset.LocalName)
 	}
 
-	for _, src := range asset.Sources {
+	for i, src := range asset.Sources {
 		if p := cachedPath(src); fileMatches(p, 0) {
-			return p, nil
+			log.Info().Str("path", p).Str("version", src.Version).Str("source", src.URL).
+				Int("source_rank", i+1).Int("source_count", len(asset.Sources)).
+				Msg("onnxruntime: using cached runtime library (no download)")
+			return RuntimeLibrary{Path: p, Version: src.Version, Source: src.URL, Cached: true}, nil
 		}
 	}
 
 	errs := make([]error, 0, len(asset.Sources))
-	for _, src := range asset.Sources {
+	for i, src := range asset.Sources {
 		libPath := cachedPath(src)
+		log.Info().Str("url", src.URL).Str("version", src.Version).Int64("bytes", src.Size).
+			Int("source_rank", i+1).Int("source_count", len(asset.Sources)).
+			Bool("is_fallback", i > 0).Str("cache_path", libPath).
+			Msg("onnxruntime: fetching runtime library")
+		start := time.Now()
 		if err := installRuntimeSource(src, libPath); err != nil {
 			errs = append(errs, err)
+			log.Warn().Err(err).Str("url", src.URL).Int("source_rank", i+1).
+				Int("source_count", len(asset.Sources)).Bool("is_fallback", i > 0).
+				Msg("onnxruntime: source failed, trying next source")
 			continue
 		}
-		return libPath, nil
+		log.Info().Str("path", libPath).Str("version", src.Version).Str("source", src.URL).
+			Dur("elapsed", time.Since(start)).Int64("archive_bytes", src.Size).
+			Bool("is_fallback", i > 0).
+			Msg("onnxruntime: runtime library installed")
+		return RuntimeLibrary{Path: libPath, Version: src.Version, Source: src.URL}, nil
 	}
 	if len(errs) == 0 {
-		return "", fmt.Errorf("no onnxruntime library source configured for %s", runtime.GOOS+"/"+runtime.GOARCH)
+		return RuntimeLibrary{}, fmt.Errorf("no onnxruntime library source configured for %s", runtime.GOOS+"/"+runtime.GOARCH)
 	}
-	return "", fmt.Errorf("install onnxruntime %s runtime: %w", asset.LocalName, errors.Join(errs...))
+	joined := errors.Join(errs...)
+	log.Error().Err(joined).Int("source_count", len(asset.Sources)).
+		Msg("onnxruntime: every source failed; ONNX-backed features will degrade")
+	return RuntimeLibrary{}, fmt.Errorf("install onnxruntime %s runtime: %w", asset.LocalName, joined)
 }
 
 // installRuntimeSource downloads one source's archive to the cache, verifies
@@ -402,6 +472,8 @@ func installRuntimeSource(src runtimeSource, libPath string) error {
 	if err := extractMember(archivePath, src.Kind, src.MemberPath, libPath); err != nil {
 		return fmt.Errorf("extract onnxruntime library from %s: %w", filepath.Base(src.URL), err)
 	}
+	log.Debug().Str("archive", filepath.Base(src.URL)).Str("member", src.MemberPath).
+		Str("member_sha256", src.SHA256).Msg("onnxruntime: verified and extracted archive member")
 	return nil
 }
 
@@ -756,6 +828,8 @@ func NewDefaultEmbedder() (*OnnxEmbedder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("model weights: %w", err)
 	}
+	log.Info().Str("lib", libPath).Str("model", modelPath).Str("vocab", vocabPath).
+		Msg("docindex: ONNX embedder ready (BGE-small, " + ModelID + ")")
 	return NewOnnxEmbedder(libPath, modelPath, vocabPath)
 }
 

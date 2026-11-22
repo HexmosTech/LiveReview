@@ -611,14 +611,17 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	runtimeLibReady := make(chan struct{}, 1)
 	go func() {
 		defer func() { runtimeLibReady <- struct{}{} }()
-		libPath, err := docindex.EnsureRuntimeLibrary()
+		lib, err := docindex.ResolveRuntimeLibrary()
 		if err != nil {
 			fmt.Printf("Warning: onnxruntime library unavailable: %v (semantic search and product-guidance doc retrieval will be degraded)\n", err)
 			return
 		}
-		if err := os.Setenv(docindex.OnnxRuntimeLibEnv, libPath); err != nil {
+		if err := os.Setenv(docindex.OnnxRuntimeLibEnv, lib.Path); err != nil {
 			fmt.Printf("Warning: could not set %s: %v (dbctx will try its own download)\n", docindex.OnnxRuntimeLibEnv, err)
+			return
 		}
+		log.Printf("[onnxruntime] resolved %s (version=%q source=%s cached=%t); exported %s for dbctx",
+			lib.Path, lib.Version, lib.Source, lib.Cached, docindex.OnnxRuntimeLibEnv)
 	}()
 
 	// Starts building the dbctx schema index in the background (non-blocking -

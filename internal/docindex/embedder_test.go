@@ -79,12 +79,15 @@ func TestEnsureRuntimeLibraryPrefersCachedCopy(t *testing.T) {
 		}},
 	}
 
-	got, err := ensureRuntimeLibrary(asset, cacheDir)
+	lib, err := ensureRuntimeLibrary(asset, cacheDir)
 	if err != nil {
 		t.Fatalf("ensureRuntimeLibrary: %v", err)
 	}
-	if got != cached {
-		t.Errorf("path = %q, want %q", got, cached)
+	if lib.Path != cached {
+		t.Errorf("path = %q, want %q", lib.Path, cached)
+	}
+	if !lib.Cached || lib.Version != "1.29.0" || lib.Source != srv.URL+"/never" {
+		t.Errorf("resolution = %+v, want cached 1.29.0 from the configured source", lib)
 	}
 	if n := hits.Load(); n != 0 {
 		t.Errorf("server hit %d times, want 0", n)
@@ -118,15 +121,21 @@ func TestEnsureRuntimeLibraryFallsBackToMirror(t *testing.T) {
 		},
 	}
 
-	got, err := ensureRuntimeLibrary(asset, cacheDir)
+	lib, err := ensureRuntimeLibrary(asset, cacheDir)
 	if err != nil {
 		t.Fatalf("ensureRuntimeLibrary: %v", err)
 	}
 	want := filepath.Join(cacheDir, "onnxruntime", "1.31.0", "libonnxruntime.so")
-	if got != want {
-		t.Fatalf("path = %q, want %q", got, want)
+	if lib.Path != want {
+		t.Fatalf("path = %q, want %q", lib.Path, want)
 	}
-	if data, err := os.ReadFile(got); err != nil {
+	if lib.Cached {
+		t.Errorf("resolution = %+v, want a fresh download", lib)
+	}
+	if lib.Version != "1.31.0" || lib.Source != srv.URL+"/mirror.zip" {
+		t.Errorf("resolution = %+v, want the mirror source", lib)
+	}
+	if data, err := os.ReadFile(lib.Path); err != nil {
 		t.Fatal(err)
 	} else if !bytes.Equal(data, content) {
 		t.Errorf("library contents = %q, want %q", data, content)
@@ -172,12 +181,12 @@ func TestEnsureRuntimeLibrarySkipsSourceWithBadChecksum(t *testing.T) {
 		},
 	}
 
-	got, err := ensureRuntimeLibrary(asset, cacheDir)
+	lib, err := ensureRuntimeLibrary(asset, cacheDir)
 	if err != nil {
 		t.Fatalf("ensureRuntimeLibrary: %v", err)
 	}
-	if want := filepath.Join(cacheDir, "onnxruntime", "1.31.0", "libonnxruntime.so"); got != want {
-		t.Errorf("path = %q, want %q", got, want)
+	if want := filepath.Join(cacheDir, "onnxruntime", "1.31.0", "libonnxruntime.so"); lib.Path != want {
+		t.Errorf("path = %q, want %q", lib.Path, want)
 	}
 	if _, err := os.Stat(filepath.Join(cacheDir, "onnxruntime", "1.29.0", "libonnxruntime.so")); !os.IsNotExist(err) {
 		t.Errorf("checksum-rejected source left a file behind: %v", err)
