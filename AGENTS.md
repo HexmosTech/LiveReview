@@ -644,6 +644,13 @@ release that contains an unresolved scanner finding.
    be scanned or released in parallel from the same session.
 4. **One release at a time.** Only after that repository's scanners have all
    finished green: version bump, tag, image push, then release notes.
+5. **Release from `master`, never from a feature branch.** Merge the feature
+   branch into `master` first (`git checkout master && git merge --ff-only
+   <branch>`), push `master`, and only then tag and release from `master`. A
+   tag on a feature branch publishes commits that `master` does not contain.
+   `scripts/lrops.py bump` enforces this and refuses to run off `master`;
+   `ALLOW_RELEASE_FROM_BRANCH=1` is the only override and must be justified in
+   the release report.
 
 If a scanner is running, the only correct next action is to wait for its
 result. See "Release Process" below for the concrete commands.
@@ -704,6 +711,10 @@ Docker/`gh` invocations beyond the one-time registry login in step 3.
    This creates an annotated `vX.Y.Z` tag on `HEAD` and pushes it immediately
    (see `scripts/lrops.py:cmd_bump`/`create_tag`). Dry-run first with
    `make version-patch-dry` (etc.) to see what tag it would create.
+
+   **Do this on `master` only.** Merge the feature branch into `master` and
+   push it before tagging; `cmd_bump` refuses to run on any other branch
+   unless `ALLOW_RELEASE_FROM_BRANCH=1` is set for a documented exception.
 
 3. **Log Docker in to GHCR on the dedicated `livereview` context** (once per
    machine):

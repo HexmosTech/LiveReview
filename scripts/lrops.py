@@ -565,6 +565,26 @@ class LiveReviewOps:
         """Check if working directory is clean (no uncommitted changes)"""
         result = self._run_command('git status --porcelain')
         return not bool(result.stdout.strip())
+
+    def require_release_branch(self):
+        """Releases are always cut from master.
+
+        A tag on a feature branch publishes commits that master does not
+        contain yet, so users get code that has not landed on the mainline.
+        Merge the branch into master first, then release from master.
+        """
+        if os.environ.get('ALLOW_RELEASE_FROM_BRANCH') == '1':
+            print('ALLOW_RELEASE_FROM_BRANCH=1: skipping master branch check.')
+            return
+        result = self._run_command(
+            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'], check=False)
+        branch = result.stdout.strip() if result.returncode == 0 else ''
+        if branch != 'master':
+            raise VersionError(
+                f"releases must be cut from 'master', not '{branch or 'unknown'}'. "
+                "Merge first (git checkout master && git merge --ff-only <branch>), "
+                "then release from master. Set ALLOW_RELEASE_FROM_BRANCH=1 only for "
+                "an intentional, documented exception.")
     
     def build_binary(self, version=None, output_path=None):
         """Build the Go binary with version information embedded"""
@@ -636,6 +656,8 @@ class LiveReviewOps:
             if not args.allow_dirty and not self.check_working_directory_clean():
                 print("Error: Working directory has uncommitted changes. Use --allow-dirty to override.", file=sys.stderr)
                 return 2
+
+            self.require_release_branch()
             
             # Get current version
             latest_tag = self.get_latest_tag()
