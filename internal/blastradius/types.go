@@ -151,8 +151,13 @@ type HunkReport struct {
 	HygieneMultiplier *float64             `json:"HygieneMultiplier"`
 	Weights           Weights              `json:"Weights"`
 	Symbols           []SymbolContribution `json:"Symbols,omitempty"`
-	ImpactedPackages  []string             `json:"ImpactedPackages,omitempty"`
-	FileCouplingBonus float64              `json:"FileCouplingBonus,omitempty"`
+	// SymbolCombine is the roll-up formula the generator used:
+	// "sqrt" (git-lrc since 2026-10-01) or "linear" (older artifacts, field
+	// absent). ComputeMathMode uses it to render the same arithmetic; when
+	// absent, it infers the mode from the recorded raw score.
+	SymbolCombine     string   `json:"SymbolCombine,omitempty"`
+	ImpactedPackages  []string `json:"ImpactedPackages,omitempty"`
+	FileCouplingBonus float64  `json:"FileCouplingBonus,omitempty"`
 	// ImpactedRelatedRepos rolls up every Symbols[].ImpactedRelatedRepos entry
 	// for this hunk (set by AddCrossRepoImpact), so the diff-viewer panel can
 	// render a hunk-level chip list the same way it already does for

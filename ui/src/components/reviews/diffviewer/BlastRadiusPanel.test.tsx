@@ -106,3 +106,91 @@ describe('BlastRadiusPanel cross-repo rendering', () => {
     expect(paths.length).toBeGreaterThan(0);
   });
 });
+
+describe('BlastRadiusPanel Math Mode formula rendering', () => {
+  const signal = (category: string, points: number) => ({ Name: 'Signal', Points: points, Category: category });
+
+  it('renders the sqrt combine and file-level-signal steps for current reports', () => {
+    const detail = makeDetail({
+      SymbolCombine: 'sqrt',
+      BlastRadiusRaw: 5.763008763747323,
+      BlastRadiusNorm: 100,
+      MaxBlastRadiusRaw: 5.763008763747323,
+      ReviewPriorityRaw: 8.34865258589672,
+      ReviewPriorityNorm: 100,
+      MaxReviewPriorityRaw: 8.34865258589672,
+      Combined: 100,
+      Signals: [signal('graph', 0.24556058315617352)],
+      Symbols: [{
+        QualifiedName: 'svc.f',
+        Name: 'f',
+        Label: 'Function',
+        Method: 'calls',
+        Signals: [signal('graph', 30.442234425508587), signal('code-metrics', 69.7)],
+        BlastRadiusRaw: 30.442234425508587,
+        ReviewPriorityRaw: 69.7,
+        DirectCount: 0,
+        TransitiveCount: 0,
+      }],
+    });
+    render(<MemoryRouter><BlastRadiusPanel detail={detail} /></MemoryRouter>);
+    fireEvent.click(screen.getByText('Math Mode'));
+    expect(screen.getAllByText(/saturating combine/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/add this hunk's file-level signals/i)).toBeInTheDocument();
+    expect(screen.getByText(/√\(30\.4\)/)).toBeInTheDocument();
+  });
+
+  it('keeps the legacy linear steps for unmarked artifacts', () => {
+    const detail = makeDetail({
+      BlastRadiusRaw: 30.702042046643918,
+      BlastRadiusNorm: 100,
+      MaxBlastRadiusRaw: 30.702042046643918,
+      ReviewPriorityRaw: 69.7,
+      ReviewPriorityNorm: 100,
+      MaxReviewPriorityRaw: 69.7,
+      Combined: 100,
+      Signals: [signal('graph', 0.25980762113533157)],
+      Symbols: [{
+        QualifiedName: 'svc.f',
+        Name: 'f',
+        Label: 'Function',
+        Method: 'calls',
+        Signals: [signal('graph', 30.442234425508587), signal('code-metrics', 69.7)],
+        BlastRadiusRaw: 30.442234425508587,
+        ReviewPriorityRaw: 69.7,
+        DirectCount: 0,
+        TransitiveCount: 0,
+      }],
+    });
+    render(<MemoryRouter><BlastRadiusPanel detail={detail} /></MemoryRouter>);
+    fireEvent.click(screen.getByText('Math Mode'));
+    expect(screen.getByText(/add every subtotal together/i)).toBeInTheDocument();
+    expect(screen.queryByText(/saturating combine/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the post-scoring adjustment step', () => {
+    const raw = Math.sqrt(12) + 8;
+    const detail = makeDetail({
+      SymbolCombine: 'sqrt',
+      BlastRadiusRaw: raw,
+      BlastRadiusNorm: 100,
+      MaxBlastRadiusRaw: raw,
+      Combined: 60,
+      Symbols: [{
+        QualifiedName: 'svc.readAadhaar',
+        Name: 'readAadhaar',
+        Label: 'Method',
+        Method: 'calls',
+        Signals: [signal('graph', 12), signal('graph', 8)],
+        BlastRadiusRaw: 20,
+        ReviewPriorityRaw: 0,
+        DirectCount: 0,
+        TransitiveCount: 0,
+      }],
+    });
+    render(<MemoryRouter><BlastRadiusPanel detail={detail} /></MemoryRouter>);
+    fireEvent.click(screen.getByText('Math Mode'));
+    expect(screen.getAllByText(/apply post-scoring adjustments/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/cross-repo bonuses and their roll-up effects/i).length).toBeGreaterThan(0);
+  });
+});

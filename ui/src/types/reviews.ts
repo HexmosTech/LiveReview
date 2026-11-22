@@ -363,6 +363,10 @@ export interface BlastRadiusHunkReport {
   HygieneMultiplier: number;
   Weights: BlastRadiusWeights;
   Symbols?: BlastRadiusSymbolContribution[];
+  // Roll-up formula the generator used: "sqrt" (git-lrc since 2026-10-01) or
+  // "linear" (older artifacts, field absent). Math Mode infers the mode from
+  // the recorded raw score when absent.
+  SymbolCombine?: 'linear' | 'sqrt' | string;
   ImpactedPackages?: string[];
   FileCouplingBonus?: number;
   ImpactedRelatedRepos?: BlastRadiusCrossRepoImpact[];

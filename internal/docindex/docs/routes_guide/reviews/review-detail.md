@@ -110,7 +110,10 @@ The score blends three dimensions:
 The "Score: Whole" / "Score: Per file" / "Diff order" control switches between
 the whole-diff ranking, per-file ranking, and original diff order. Each hunk's
 breakdown panel (Summary and Math Mode tabs) shows the exact math behind its
-score, including the finding-severity contribution.
+score, including the finding-severity contribution. Math Mode follows the
+report's roll-up formula: older reports show the linear subtotal sum, while
+current reports show the saturating `sqrt(sum(symbols))` step and, when a
+cross-repo bonus was added after scoring, an explicit adjustment step.
 
 When the repository has **Related Repos** configured, the panel also shows
 **Impacted related repos** cards. Each card shows the related repository's

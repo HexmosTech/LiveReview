@@ -233,3 +233,167 @@ func TestTier(t *testing.T) {
 		}
 	}
 }
+
+func loadTestReportFile(t *testing.T, name string) Report {
+	t.Helper()
+	data, err := os.ReadFile("testdata/" + name)
+	if err != nil {
+		t.Fatalf("read testdata/%s: %v", name, err)
+	}
+	var r Report
+	if err := json.Unmarshal(data, &r); err != nil {
+		t.Fatalf("unmarshal testdata/%s: %v", name, err)
+	}
+	return r
+}
+
+// TestComputeMathMode_Review11632CurrentSqrt is the same review scored by
+// git-lrc's current saturating formula. The per-symbol inputs and every
+// signal are identical to the legacy fixture; only the hunk roll-up adds a
+// sqrt step. This is the parity case that keeps the server and git-lrc's UI
+// showing the same arithmetic.
+func TestComputeMathMode_Review11632CurrentSqrt(t *testing.T) {
+	r := loadTestReportFile(t, "review_11632_current_report.json")
+	h := findHunk(t, r, "ui/src/pages/Chatbot/rebucketChart.ts", 557)
+
+	mm := ComputeMathMode(h)
+
+	if mm.BlastRadius.Mode != SymbolCombineSqrt {
+		t.Fatalf("BlastRadius.Mode = %q, want sqrt", mm.BlastRadius.Mode)
+	}
+	approxEqual(t, "BlastRadius.SymbolSubtotal", mm.BlastRadius.SymbolSubtotal, 30.4)
+	approxEqual(t, "BlastRadius.CombinedSymbols", mm.BlastRadius.CombinedSymbols, 5.5)
+	approxEqual(t, "BlastRadius.HunkSignalsSubtotal", mm.BlastRadius.HunkSignalsSubtotal, 0.2)
+	approxEqual(t, "BlastRadius.Total", mm.BlastRadius.Total, 5.8)
+	approxEqual(t, "BlastRadius.Raw", mm.BlastRadius.Raw, 5.8)
+	approxEqual(t, "BlastRadius.ArtifactDelta", mm.BlastRadius.ArtifactDelta, 0)
+	if mm.BlastRadius.StepAdd != 1 || mm.BlastRadius.StepSum != 2 || mm.BlastRadius.StepCombine != 3 ||
+		mm.BlastRadius.StepHunk != 4 || mm.BlastRadius.StepAdjust != 0 || mm.BlastRadius.StepScale != 5 {
+		t.Fatalf("BlastRadius steps = add:%d sum:%d sqrt:%d hunk:%d adjust:%d scale:%d, want 1/2/3/4/0/5",
+			mm.BlastRadius.StepAdd, mm.BlastRadius.StepSum, mm.BlastRadius.StepCombine,
+			mm.BlastRadius.StepHunk, mm.BlastRadius.StepAdjust, mm.BlastRadius.StepScale)
+	}
+	if mm.ReviewPriority.StepAdd != 6 || mm.ReviewPriority.StepSum != 7 || mm.ReviewPriority.StepCombine != 8 ||
+		mm.ReviewPriority.StepHunk != 0 || mm.ReviewPriority.StepAdjust != 0 || mm.ReviewPriority.StepScale != 9 {
+		t.Fatalf("ReviewPriority steps = %d/%d/%d/%d/%d/%d, want 6/7/8/0/0/9",
+			mm.ReviewPriority.StepAdd, mm.ReviewPriority.StepSum, mm.ReviewPriority.StepCombine,
+			mm.ReviewPriority.StepHunk, mm.ReviewPriority.StepAdjust, mm.ReviewPriority.StepScale)
+	}
+	if mm.StepBlend != 10 || mm.StepHygiene != 11 {
+		t.Fatalf("combine steps = %d/%d, want 10/11", mm.StepBlend, mm.StepHygiene)
+	}
+	approxEqual(t, "Final vs Combined", mm.Final, h.Combined)
+
+	single := findHunk(t, r, "ui/src/pages/Chatbot/ChatConversation.tsx", 841)
+	smm := ComputeMathMode(single)
+	if smm.BlastRadius.Mode != SymbolCombineSqrt {
+		t.Fatalf("single BlastRadius.Mode = %q, want sqrt", smm.BlastRadius.Mode)
+	}
+	// One symbol still gets the sqrt step: the scorer applies it to the sum
+	// even when only one contribution is present.
+	if smm.BlastRadius.StepCombine != 2 || smm.BlastRadius.StepSum != 0 {
+		t.Fatalf("single BlastRadius steps = sum:%d sqrt:%d, want 0/2", smm.BlastRadius.StepSum, smm.BlastRadius.StepCombine)
+	}
+	approxEqual(t, "single BlastRadius.Total", smm.BlastRadius.Total, 2.6)
+	approxEqual(t, "single Final vs Combined", smm.Final, single.Combined)
+}
+
+// TestComputeMathMode_CrossRepoAdjustment covers a score that was enriched
+// after the roll-up: RecordCrossRepoImpact adds its bonus linearly to the
+// recorded raw score, so the sqrt formula lands short by exactly that bonus.
+// Math Mode must show the adjustment instead of silently disagreeing.
+func TestComputeMathMode_CrossRepoAdjustment(t *testing.T) {
+	raw := math.Sqrt(12) + 8
+	one := 1.0
+	h := HunkReport{
+		FilePath:          "src/service.ts",
+		Header:            "@@ -1,1 +1,2 @@",
+		SymbolCombine:     SymbolCombineSqrt,
+		BlastRadiusRaw:    raw,
+		BlastRadiusNorm:   100,
+		MaxBlastRadiusRaw: raw,
+		Combined:          60, // 0.6*100 + 0.4*0, hygiene 1
+		HygieneMultiplier: &one,
+		Weights:           Weights{BlastRadius: 0.6, ReviewPriority: 0.4},
+		Symbols: []SymbolContribution{{
+			Name: "readAadhaar",
+			Signals: []Signal{
+				{Name: "Caller reach", Points: 12, Category: "graph"},
+				{Name: "Cross-repo impact", Points: 8, Category: "graph"},
+			},
+		}},
+	}
+
+	mm := ComputeMathMode(h)
+
+	approxEqual(t, "SymbolSubtotal", mm.BlastRadius.SymbolSubtotal, 20)
+	approxEqual(t, "CombinedSymbols", mm.BlastRadius.CombinedSymbols, math.Sqrt(20))
+	if mm.BlastRadius.StepAdjust == 0 {
+		t.Fatal("StepAdjust = 0, want an explicit post-scoring adjustment step")
+	}
+	if mm.BlastRadius.StepAdjust+1 != mm.BlastRadius.StepScale {
+		t.Fatalf("StepAdjust/StepScale = %d/%d, want adjustment immediately before scale",
+			mm.BlastRadius.StepAdjust, mm.BlastRadius.StepScale)
+	}
+	approxEqual(t, "ArtifactDelta", mm.BlastRadius.ArtifactDelta, raw-math.Sqrt(20))
+	approxEqual(t, "Final vs Combined", mm.Final, h.Combined)
+}
+
+// TestComputeMathMode_InfersMaxForOldArtifacts covers captures (review
+// 10566) that recorded Norm but not the raw maximum it was divided by.
+func TestComputeMathMode_InfersMaxForOldArtifacts(t *testing.T) {
+	h := HunkReport{
+		FilePath:          "a.go",
+		Header:            "@@ -1,1 +1,2 @@",
+		BlastRadiusRaw:    10,
+		BlastRadiusNorm:   50,
+		ReviewPriorityRaw: 0,
+		Combined:          30,
+		HygieneMultiplier: func() *float64 { v := 1.0; return &v }(),
+		Weights:           Weights{BlastRadius: 0.6, ReviewPriority: 0.4},
+		Symbols: []SymbolContribution{{
+			Name:    "f",
+			Signals: []Signal{{Name: "Caller reach", Points: 10, Category: "graph"}},
+		}},
+	}
+
+	mm := ComputeMathMode(h)
+	approxEqual(t, "inferred Max", mm.BlastRadius.Max, 20)
+	if !mm.BlastRadius.MaxInferred {
+		t.Fatal("MaxInferred = false, want true")
+	}
+}
+
+// TestComputeMathMode_Review14285CrossRepoArtifact replays the real
+// production consumer review. The artifact predates SymbolCombine, and its
+// cross-repo impacts were added after the sqrt roll-up. Detection must still
+// recognize the sqrt formula (by discounting the cross-repo bonus) and show
+// the adjustment step instead of misreading the hunk as linear.
+func TestComputeMathMode_Review14285CrossRepoArtifact(t *testing.T) {
+	r := loadTestReportFile(t, "review_14285_crossrepo_report.json")
+	impacted := 0
+	hunks := 0
+	for _, f := range r.Files {
+		for _, h := range f.Hunks {
+			hunks++
+			mm := ComputeMathMode(h)
+			if mm.BlastRadius.Mode != SymbolCombineSqrt {
+				t.Fatalf("%s:%d Mode = %q, want sqrt", h.FilePath, h.NewStart, mm.BlastRadius.Mode)
+			}
+			approxEqual(t, f.Path+": Final vs Combined", mm.Final, h.Combined)
+			if len(h.ImpactedRelatedRepos) > 0 {
+				impacted++
+				if mm.BlastRadius.StepAdjust == 0 {
+					t.Errorf("%s:%d StepAdjust = 0, want an explicit cross-repo adjustment step", h.FilePath, h.NewStart)
+				}
+				if mm.BlastRadius.ArtifactDelta <= 0 {
+					t.Errorf("%s:%d ArtifactDelta = %v, want positive (bonus added after the roll-up)",
+						h.FilePath, h.NewStart, mm.BlastRadius.ArtifactDelta)
+				}
+			}
+		}
+	}
+	if hunks != 7 || impacted != 3 {
+		t.Fatalf("hunks/impacted = %d/%d, want 7/3", hunks, impacted)
+	}
+}

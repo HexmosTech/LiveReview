@@ -30,6 +30,7 @@ import {
   SEVERITY_WEIGHT,
   shortName,
 } from '../../../lib/blastRadius';
+import { BLAST_CATEGORIES, PRIORITY_CATEGORIES, buildMathMode, MathDimension } from '../../../lib/blastMath';
 import SunburstChart from './SunburstChart';
 import FlameGraph from './FlameGraph';
 
@@ -271,8 +272,6 @@ const METHODOLOGY_PARAGRAPHS = [
 
 const SEVERITY_LABELS: Record<string, string> = { critical: 'Critical', warning: 'Warning', info: 'Info' };
 
-const BLAST_CATEGORIES = new Set(['architecture', 'graph']);
-const PRIORITY_CATEGORIES = new Set(['duplication', 'code-metrics']);
 
 function splitSignalsByDimension(signals: BlastRadiusSignal[]) {
   const blast: BlastRadiusSignal[] = [];
@@ -286,15 +285,6 @@ function splitSignalsByDimension(signals: BlastRadiusSignal[]) {
   return { blast, priority, other };
 }
 
-function sumExpression(nums: number[]): { text: string; total: number } {
-  if (!nums || nums.length === 0) return { text: '0', total: 0 };
-  const total = nums.reduce((a, b) => a + b, 0);
-  const text = nums.reduce((acc, n, i) => {
-    if (i === 0) return n.toFixed(1);
-    return `${acc} ${n >= 0 ? '+' : '-'} ${Math.abs(n).toFixed(1)}`;
-  }, '');
-  return { text, total };
-}
 
 function sortedSignals(signals: BlastRadiusSignal[]): BlastRadiusSignal[] {
   return [...(signals || [])].sort((a, b) => Math.abs(b.Points || 0) - Math.abs(a.Points || 0));
@@ -508,119 +498,99 @@ function fileBaseName(path?: string): string {
   return (path || '').split('/').pop() || path || '';
 }
 
-function renderMathDimension(
-  startStep: number,
-  title: string,
-  symbolLines: { name: string; signals: BlastRadiusSignal[] }[],
-  hunkSignals: BlastRadiusSignal[],
-  raw: number,
-  max: number,
-  norm: number,
-  maxSource: { file?: string; header?: string },
-  self: { file: string; header: string }
-) {
-  const perSymbol = symbolLines.map((l) => ({ name: l.name, ...sumExpression(l.signals.map((s) => s.Points || 0)) }));
-  const hunkExpr = hunkSignals.length > 0 ? sumExpression(hunkSignals.map((s) => s.Points || 0)) : null;
-  const subtotalNums = [...perSymbol.map((l) => l.total), ...(hunkExpr ? [hunkExpr.total] : [])];
-  const hasMultipleParts = subtotalNums.length > 1;
-  const totalExpr = sumExpression(subtotalNums);
-
-  let n = startStep;
-  const stepAdd = n++;
-  const stepSum = hasMultipleParts ? n++ : null;
-  const stepScale = n++;
-  const isSelf = maxSource.file === self.file && maxSource.header === self.header;
-
-  // Ported 1:1 from git-lrc's .math-section/.math-step CSS (styles.css:2940-2996):
-  // each dimension is its own bordered card with a title separated by a rule,
-  // step labels are small/bold/uppercase/blue, and the actual arithmetic lines
-  // switch to a monospace font while explanatory prose ("dim") lines stay
-  // sans-serif — a distinction the port previously collapsed into one flat
-  // text style for everything.
-  const node = (
+function renderMathDimension(d: MathDimension) {
+  const { perSymbol, hunkExpression, mode } = d;
+  return (
     <div className="rounded-md border border-slate-700 bg-slate-900 p-3">
-      <div className="mb-2 border-b border-slate-700 pb-1.5 text-xs font-bold text-slate-200">{title}</div>
+      <div className="mb-2 border-b border-slate-700 pb-1.5 text-xs font-bold text-slate-200">{d.title}</div>
       <div className="mb-2.5">
-        <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {stepAdd} — add up each symbol's own signals</div>
-        {perSymbol.length === 0 && !hunkExpr && <div className="pl-1 text-xs text-slate-500">No signals fired for this dimension.</div>}
+        <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {d.stepAdd} — add up each symbol's own signals</div>
+        {perSymbol.length === 0 && !hunkExpression && <div className="pl-1 text-xs text-slate-500">No signals fired for this dimension.</div>}
         {perSymbol.map((l, i) => (
           <div key={i} className="pl-1 font-mono text-xs leading-relaxed text-slate-300">
             <span className="font-semibold text-slate-500">{l.name}</span>: {l.text} = <strong className="text-slate-100">{l.total.toFixed(1)}</strong>
           </div>
         ))}
-        {hunkExpr && (
+        {mode === 'linear' && hunkExpression && (
           <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">
-            <span className="font-semibold text-slate-500">This hunk (file-level signals)</span>: {hunkExpr.text} = <strong className="text-slate-100">{hunkExpr.total.toFixed(1)}</strong>
+            <span className="font-semibold text-slate-500">This hunk (file-level signals)</span>: {hunkExpression.text} = <strong className="text-slate-100">{hunkExpression.total.toFixed(1)}</strong>
           </div>
         )}
       </div>
-      {stepSum !== null && (
+      {d.stepSum > 0 && (
         <div className="mb-2.5">
-          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {stepSum} — add every subtotal together</div>
-          <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">{totalExpr.text} = <strong className="text-slate-100">{totalExpr.total.toFixed(1)}</strong></div>
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {d.stepSum} — add every subtotal together</div>
+          <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">{d.sumExpression.text} = <strong className="text-slate-100">{d.sumExpression.total.toFixed(1)}</strong></div>
+        </div>
+      )}
+      {d.stepCombine > 0 && (
+        <div className="mb-2.5">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {d.stepCombine} — saturating combine (sqrt of the summed symbols)</div>
+          <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">
+            √({d.symbolSubtotal.toFixed(1)}) = <strong className="text-slate-100">{d.combinedSymbols.toFixed(1)}</strong>
+          </div>
+          <div className="pl-1 text-xs text-slate-500">Dampens "many low-risk symbols changed" without changing any single symbol's own signals.</div>
+        </div>
+      )}
+      {d.stepHunk > 0 && (
+        <div className="mb-2.5">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {d.stepHunk} — add this hunk's file-level signals</div>
+          <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">
+            {d.combinedSymbols.toFixed(1)} + {d.hunkSubtotal.toFixed(1)} = <strong className="text-slate-100">{d.total.toFixed(1)}</strong>
+          </div>
+        </div>
+      )}
+      {d.stepAdjust > 0 && (
+        <div className="mb-2.5">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {d.stepAdjust} — apply post-scoring adjustments</div>
+          <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">
+            {d.total.toFixed(1)} {d.artifactDelta >= 0 ? '+' : '-'} {Math.abs(d.artifactDelta).toFixed(1)} = <strong className="text-slate-100">{d.raw.toFixed(1)}</strong>
+          </div>
+          <div className="pl-1 text-xs text-slate-500">Cross-repo bonuses and their roll-up effects are applied after the structural total.</div>
         </div>
       )}
       <div>
-        <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {stepScale} — scale against the highest-scoring hunk in this diff</div>
+        <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {d.stepScale} — scale against the highest-scoring hunk in this diff</div>
         <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">
-          {max ? <>{(raw || 0).toFixed(1)} ÷ {max.toFixed(1)} × 100 = <strong className="text-slate-100">{(norm || 0).toFixed(1)}</strong></> : <>no hunk in this diff scored above 0 for this dimension, so this is <strong className="text-slate-100">0</strong></>}
+          {d.max ? <>{d.raw.toFixed(1)} ÷ {d.max.toFixed(1)} × 100 = <strong className="text-slate-100">{d.norm.toFixed(1)}</strong></> : <>no hunk in this diff scored above 0 for this dimension, so this is <strong className="text-slate-100">0</strong></>}
         </div>
-        {max > 0 && (
+        {d.max > 0 && (
           <div className="pl-1 text-xs text-slate-500">
-            {isSelf
-              ? `${max.toFixed(1)} is this very hunk's own score — it's the highest for this dimension anywhere in this diff.`
-              : `${max.toFixed(1)} is the highest score for this dimension anywhere in this diff, from ${maxSource.file ? fileBaseName(maxSource.file) : 'another hunk'}${maxSource.header ? ` (${maxSource.header})` : ''}.`}
+            {d.maxInferred
+              ? `${d.max.toFixed(1)} is the highest score for this dimension in this diff, recovered from the recorded 0-100 rank.`
+              : d.isSelf
+                ? `${d.max.toFixed(1)} is this very hunk's own score — it's the highest for this dimension anywhere in this diff.`
+                : `${d.max.toFixed(1)} is the highest score for this dimension anywhere in this diff, from ${d.maxSource.file ? fileBaseName(d.maxSource.file) : 'another hunk'}${d.maxSource.header ? ` (${d.maxSource.header})` : ''}.`}
           </div>
         )}
       </div>
     </div>
   );
-  return { node, nextStep: n };
 }
 
 const MathModeView: React.FC<{ detail: BlastRadiusHunkReport }> = ({ detail }) => {
-  const symbols = detail.Symbols || [];
-  const weights = detail.Weights && typeof detail.Weights.BlastRadius === 'number' ? detail.Weights : { BlastRadius: 0.6, ReviewPriority: 0.4 };
-
-  function dimensionInputs(categories: Set<string>) {
-    const symbolLines = symbols
-      .map((sym) => ({ name: sym.Name || shortName(sym.QualifiedName), signals: (sym.Signals || []).filter((s) => categories.has(s.Category)) }))
-      .filter((l) => l.signals.length > 0);
-    const hunkSigs = (detail.Signals || []).filter((s) => categories.has(s.Category));
-    return { symbolLines, hunkSigs };
-  }
-
-  const blastNorm = detail.BlastRadiusNorm || 0;
-  const priorityNorm = detail.ReviewPriorityNorm || 0;
-  const blastInputs = dimensionInputs(BLAST_CATEGORIES);
-  const priorityInputs = dimensionInputs(PRIORITY_CATEGORIES);
-  const self = { file: detail.FilePath, header: detail.Header };
-
-  const { node: blastNode, nextStep: afterBlast } = renderMathDimension(
-    1, 'Blast Radius', blastInputs.symbolLines, blastInputs.hunkSigs,
-    detail.BlastRadiusRaw, detail.MaxBlastRadiusRaw, blastNorm,
-    { file: detail.MaxBlastRadiusHunkFile, header: detail.MaxBlastRadiusHunkHeader }, self
-  );
-  const { node: priorityNode, nextStep: afterPriority } = renderMathDimension(
-    afterBlast, 'Review Priority', priorityInputs.symbolLines, priorityInputs.hunkSigs,
-    detail.ReviewPriorityRaw, detail.MaxReviewPriorityRaw, priorityNorm,
-    { file: detail.MaxReviewPriorityHunkFile, header: detail.MaxReviewPriorityHunkHeader }, self
-  );
-
-  const hygiene = typeof detail.HygieneMultiplier === 'number' ? detail.HygieneMultiplier : 1.0;
-  const blastShare = weights.BlastRadius * blastNorm;
-  const priorityShare = weights.ReviewPriority * priorityNorm;
-  const blended = blastShare + priorityShare;
-  const structural = blended * hygiene; // == detail.Combined (the pre-severity score)
-  const severityScore = typeof detail.FindingSeverity === 'number' ? detail.FindingSeverity : 0;
-  const severityLabel = detail.FindingSeverityLabel || null;
-  const severityCounts = detail.FindingSeverityCounts || { critical: 0, warning: 0, info: 0 };
-  const severityShare = SEVERITY_WEIGHT * severityScore;
-  const final = blendRiskScore(structural, severityScore);
-  const stepBlend = afterPriority;
-  const stepHygiene = afterPriority + 1;
-  const stepSeverity = afterPriority + 2;
-  const stepFinalBlend = afterPriority + 3;
+  const mm = buildMathMode(detail);
+  const {
+    blast,
+    priority,
+    weights,
+    blastShare,
+    priorityShare,
+    blended,
+    hygieneMultiplier: hygiene,
+    structural,
+    severityScore,
+    severityLabel,
+    severityCounts,
+    severityShare,
+    final,
+    stepBlend,
+    stepHygiene,
+    stepSeverity,
+    stepFinalBlend,
+  } = mm;
+  const blastNode = renderMathDimension(blast);
+  const priorityNode = renderMathDimension(priority);
 
   const sevParts: string[] = [];
   if (severityCounts.critical > 0) sevParts.push(`${severityCounts.critical} critical`);
@@ -639,7 +609,7 @@ const MathModeView: React.FC<{ detail: BlastRadiusHunkReport }> = ({ detail }) =
         <div className="mb-2.5">
           <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {stepBlend} — blend Blast Radius and Review Priority</div>
           <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">
-            ({weights.BlastRadius.toFixed(2)} × {blastNorm.toFixed(1)}) + ({weights.ReviewPriority.toFixed(2)} × {priorityNorm.toFixed(1)}) = {blastShare.toFixed(1)} + {priorityShare.toFixed(1)} = <strong className="text-slate-100">{blended.toFixed(1)}</strong>
+            ({weights.BlastRadius.toFixed(2)} × {blast.norm.toFixed(1)}) + ({weights.ReviewPriority.toFixed(2)} × {priority.norm.toFixed(1)}) = {blastShare.toFixed(1)} + {priorityShare.toFixed(1)} = <strong className="text-slate-100">{blended.toFixed(1)}</strong>
           </div>
         </div>
         <div className="mb-2.5">

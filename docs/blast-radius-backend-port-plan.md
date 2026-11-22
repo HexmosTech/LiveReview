@@ -256,6 +256,29 @@ this session, ~20 workers brought the full set under a minute).
 
 Run once locally, then against prod after deploy (prod run is your call).
 
+### Formula-aware update (2026-11-22)
+
+git-lrc changed the hunk roll-up on 2026-10-01 to
+`sqrt(sum(symbol contributions)) + hunk signals`. `HunkReport` now carries
+`SymbolCombine` (`"sqrt"` on current reports; absent on older artifacts), and
+`ComputeMathMode`:
+
+- infers `linear` vs `sqrt` from the recorded raw score when the marker is
+  absent, so review 11632's original numbers keep their original steps;
+- emits `StepCombine` / `StepHunk` / `StepAdjust` plus the raw inputs
+  (`SymbolSubtotal`, `CombinedSymbols`, `ArtifactDelta`) instead of assuming a
+  flat sum;
+- treats cross-repo bonuses correctly: `RecordCrossRepoImpact` adds its points
+  after the roll-up, so the difference becomes an explicit adjustment step and
+  `Final == Combined` still holds;
+- recovers a missing `Max*` from `raw / (norm / 100)` for older captures.
+
+`ui/src/lib/blastMath.ts` is the TypeScript mirror, used by
+`BlastRadiusPanel.tsx`; `ui/src/lib/blastMath.test.ts` and
+`BlastRadiusPanel.test.tsx` pin the same steps. The current-formula fixture is
+`internal/blastradius/testdata/review_11632_current_report.json` (provenance in
+git-lrc's `blastradius/testdata/reviews/README.md`).
+
 ## Verification
 
 `internal/blastradius/testdata/review_11632_report.json` is a real S3
