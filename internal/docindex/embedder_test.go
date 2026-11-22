@@ -50,6 +50,9 @@ func mirrorServer(t *testing.T, servePath string, body []byte) (*httptest.Server
 			http.NotFound(w, r)
 			return
 		}
+		// Test-only handler serving raw archive bytes to our own client, not
+		// HTML to a browser; there is nothing to HTML-escape.
+		// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter
 		_, _ = w.Write(body)
 	}))
 	t.Cleanup(srv.Close)
