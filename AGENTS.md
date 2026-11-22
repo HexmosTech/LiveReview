@@ -627,6 +627,27 @@ Before releasing a new Docker image:
 The `/test-chat` endpoint (unauthenticated, hardcoded org access) is automatically
 excluded in production builds.
 
+## Release Sequencing Is Mandatory
+
+Scanning and releasing are two separate phases, and they are serialized. This
+rule is not advisory: never scan and release at the same time, and never cut a
+release that contains an unresolved scanner finding.
+
+1. **Finish every scanner before starting any release work.** Run one scanner
+   at a time, each to completion, with the resource caps in "Running Tests and
+   Scans on a Resource-Constrained Machine". Do not start a version bump, tag,
+   Docker build, or release-notes edit while a scan is still running.
+2. **A red scan blocks the release.** Fix the finding, or record an explicit
+   documented false-positive triage, before any release step.
+3. **One repository at a time.** Complete LiveReview's scan-then-release cycle
+   before starting git-lrc's (or vice versa). The two repositories must never
+   be scanned or released in parallel from the same session.
+4. **One release at a time.** Only after that repository's scanners have all
+   finished green: version bump, tag, image push, then release notes.
+
+If a scanner is running, the only correct next action is to wait for its
+result. See "Release Process" below for the concrete commands.
+
 ## Release Process
 
 This is the full procedure for cutting a LiveReview release (patch, minor, or
@@ -635,7 +656,9 @@ release with notes. Every step below is a `make` target; none require manual
 Docker/`gh` invocations beyond the one-time registry login in step 3.
 
 0. **Run the local security/scanner suite and confirm every one is green
-   before tagging anything.** CI re-runs these on push, but a release is
+   before tagging anything.** Follow "Release Sequencing Is Mandatory" above:
+   one scanner at a time, all of them finished, before any release step
+   begins. CI re-runs these on push, but a release is
    the moment that output actually ships - catching a finding after the
    tag and Docker image are already out is more disruptive than catching
    it before. Run, in order (see the `hex-livereview-security-checks`
