@@ -165,14 +165,52 @@ const SourceSection: React.FC<{
     <div className="grid grid-cols-[minmax(120px,156px)_1fr] items-start gap-2.5">
       <span className="pt-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">Source</span>
       <div className="grid gap-2.5">
-        {/* Row 1: AI Review */}
-        {aiOption && (
-          <div className="flex flex-wrap gap-2">
-            <Chip option={aiOption} onClick={() => onToggleTool('ai')} />
-          </div>
-        )}
+        {/* Primary Source Toggles: Side-by-Side */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {aiOption && (
+            <button
+              type="button"
+              onClick={() => onToggleTool('ai')}
+              aria-pressed={aiOption.active}
+              title={aiOption.active ? 'Disable AI Review comments' : 'Enable AI Review comments'}
+              className={classNames(
+                'inline-flex min-h-[34px] items-center gap-2 rounded-md border px-3 text-[13px] font-bold transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400',
+                aiOption.active
+                  ? 'border-blue-500/50 bg-blue-500/20 text-[#eef6ff]'
+                  : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.3)] text-slate-300 hover:bg-[rgba(84,94,106,0.36)] hover:text-white'
+              )}
+            >
+              <span>AI Review</span>
+              <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-white/10 px-1.5 text-[11px] font-bold">
+                {aiOption.count}
+              </span>
+            </button>
+          )}
 
-        {/* Row 2: Static Tools */}
+          {staticTools.length > 0 && (
+            <button
+              type="button"
+              onClick={toggleAllStatic}
+              aria-pressed={isAllStaticActive}
+              title={isAllStaticActive ? 'Disable all static tools' : 'Enable all static tools'}
+              className={classNames(
+                'inline-flex min-h-[34px] items-center gap-2 rounded-md border px-3 text-[13px] font-bold transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400',
+                isAllStaticActive
+                  ? 'border-blue-500/50 bg-blue-500/20 text-[#eef6ff]'
+                  : isAnyStaticActive
+                  ? 'border-blue-600/50 bg-blue-500/10 text-blue-200'
+                  : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.3)] text-slate-300 hover:bg-[rgba(84,94,106,0.36)] hover:text-white'
+              )}
+            >
+              <span>Static Tools</span>
+              <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-white/10 px-1.5 text-[11px] font-bold">
+                {totalStaticCount}
+              </span>
+            </button>
+          )}
+        </div>
+
+        {/* Static Tools Breakdown */}
         {staticTools.length > 0 && (
           <div
             className={classNames(
@@ -180,31 +218,8 @@ const SourceSection: React.FC<{
               isAnyStaticActive ? 'border-blue-700/50 bg-slate-900/70' : 'border-slate-700/40 bg-slate-900/40'
             )}
           >
-            {/* Master Toggle */}
-            <div className="flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={toggleAllStatic}
-                aria-pressed={isAllStaticActive}
-                title={isAllStaticActive ? 'Disable all static tools' : 'Enable all static tools'}
-                className={classNames(
-                  'inline-flex w-fit min-h-[34px] items-center gap-2 rounded-md border px-3 text-[13px] font-bold transition-colors cursor-pointer',
-                  isAllStaticActive
-                    ? 'border-blue-500/50 bg-blue-500/20 text-[#eef6ff]'
-                    : isAnyStaticActive
-                    ? 'border-blue-600/50 bg-blue-500/10 text-blue-200'
-                    : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.3)] text-slate-300 hover:bg-[rgba(84,94,106,0.36)] hover:text-white'
-                )}
-              >
-                <span>Static Tools</span>
-                <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-white/10 px-1.5 text-[11px] font-bold">
-                  {totalStaticCount}
-                </span>
-              </button>
-            </div>
-
             {/* Directly visible categories with boundary, with tools placed underneath */}
-            <div className="relative grid gap-2.5 border-l border-slate-700/60 pl-[18px]">
+            <div className="grid gap-2.5">
               {orderedCategories.map((catGroup) => {
                 const isCatAllActive = catGroup.tools.every((t) => t.active);
                 const isCatAnyActive = catGroup.tools.some((t) => t.active);
@@ -228,7 +243,7 @@ const SourceSection: React.FC<{
                       aria-pressed={isCatAllActive}
                       title={`Toggle all ${catGroup.category} tools`}
                       className={classNames(
-                        'inline-flex w-fit min-h-[30px] items-center gap-2 rounded-md border px-2.5 text-xs font-bold transition-colors cursor-pointer',
+                        'inline-flex w-fit min-h-[30px] items-center gap-2 rounded-md border px-2.5 text-xs font-bold transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400',
                         isCatAllActive
                           ? 'border-blue-500/50 bg-blue-500/20 text-[#eef6ff]'
                           : isCatAnyActive
@@ -252,7 +267,7 @@ const SourceSection: React.FC<{
                           aria-pressed={tool.active}
                           title={`Toggle ${tool.label}`}
                           className={classNames(
-                            'inline-flex min-h-[26px] items-center gap-2 rounded-full border px-2.5 text-[11px] font-semibold transition-colors cursor-pointer',
+                            'inline-flex min-h-[26px] items-center gap-2 rounded-full border px-2.5 text-[11px] font-semibold transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400',
                             tool.active
                               ? 'border-blue-700/60 bg-blue-500/[0.18] text-blue-100'
                               : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.28)] text-slate-300 hover:bg-slate-700/40 hover:text-white'

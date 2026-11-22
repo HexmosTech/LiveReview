@@ -290,6 +290,7 @@ export function buildFilterFacets(files: DiffReviewFile[], filters: IssueFilters
 
   const tools: FacetOption[] = hasAnyToolFindings
     ? [...toolCounts.entries()]
+        .filter(([, { count }]) => count > 0)
         .sort((a, b) => {
           if (a[0] === 'ai') return -1;
           if (b[0] === 'ai') return 1;

@@ -127,9 +127,13 @@ const CommentCard: React.FC<{
           >
             {(comment.severity || 'info').toUpperCase()}
           </span>
-          {comment.tool_name && (
+          {comment.tool_name ? (
             <span className="comment-tool-badge inline-flex items-center rounded-full border border-[rgba(56,189,248,0.35)] bg-[rgba(56,189,248,0.15)] px-2 py-0.5 text-[11px] font-semibold text-[#38bdf8]">
               {comment.tool_name}
+            </span>
+          ) : (
+            <span className="comment-ai-badge inline-flex items-center gap-1 rounded-full border border-[rgba(168,85,247,0.35)] bg-[rgba(168,85,247,0.15)] px-2 py-0.5 text-[11px] font-semibold text-purple-300">
+              <span className="text-[10px]">✦</span> AI Review
             </span>
           )}
           <span className="font-mono text-xs text-slate-400">
