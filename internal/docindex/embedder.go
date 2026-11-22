@@ -43,11 +43,12 @@ const (
 
 	// onnxRuntimeVersion is the release the primary (Microsoft) sources pin.
 	onnxRuntimeVersion = "1.29.0"
-	// onnxRuntimeMirrorVersion is the release the fallback mirror pins. It is
-	// deliberately not tied to onnxRuntimeVersion: the mirror's v1.29.0 assets
-	// have no windows/arm64 shared library, and its newer releases are
-	// backwards compatible with the C API this process is compiled against.
-	onnxRuntimeMirrorVersion = "1.31.0"
+	// onnxRuntimeMirrorVersion is the release the fallback mirror pins: the
+	// same one as the primary, so a machine that has to fall back still runs
+	// the version this repo was built and tested against. windows/arm64 is the
+	// one exception - the mirror never published a dynamic arm64 build for
+	// 1.29.0, so that platform's source list spells out 1.31.0 instead.
+	onnxRuntimeMirrorVersion = "1.29.0"
 
 	CacheDirEnv       = "DBCTX_CACHE_DIR"
 	OnnxRuntimeLibEnv = "DBCTX_ONNXRUNTIME_LIB"
@@ -115,7 +116,7 @@ const (
 	// the same release assets. Kept because microsoft/onnxruntime (and its
 	// release downloads) went 404 in late 2026; without this, every fresh
 	// install silently loses the ONNX-backed features.
-	ortMirrorRelBase = "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v" + onnxRuntimeMirrorVersion + "/"
+	ortMirrorBase = "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v"
 )
 
 func ortOfficial(archive, member, sha256 string, size int64, kind archiveKind) runtimeSource {
@@ -129,10 +130,13 @@ func ortOfficial(archive, member, sha256 string, size int64, kind archiveKind) r
 	}
 }
 
-func ortMirror(archive, member, sha256 string, size int64, kind archiveKind) runtimeSource {
+// ortMirror builds a source for the fallback mirror. version is a parameter
+// rather than always onnxRuntimeMirrorVersion because the mirror has no
+// windows/arm64 dynamic build at the pinned release.
+func ortMirror(version, archive, member, sha256 string, size int64, kind archiveKind) runtimeSource {
 	return runtimeSource{
-		Version:    onnxRuntimeMirrorVersion,
-		URL:        ortMirrorRelBase + archive,
+		Version:    version,
+		URL:        ortMirrorBase + version + "/" + archive,
 		SHA256:     sha256,
 		Size:       size,
 		Kind:       kind,
@@ -147,9 +151,9 @@ var runtimeAssets = map[string]runtimeAsset{
 			ortOfficial("onnxruntime-linux-x64-1.29.0.tgz",
 				"onnxruntime-linux-x64-1.29.0/lib/libonnxruntime.so.1.29.0",
 				"c3fddc4f139a045b0c4902c57410f0694f1c2fdf9b6939fbe38b1aeae7cd14ba", 11082880, archiveTarGz),
-			ortMirror("onnxruntime-linux-x64-glibc2_17-Release-1.31.0.zip",
-				"onnxruntime-linux-x64-glibc2_17-Release-1.31.0/lib/libonnxruntime.so",
-				"afaf59e5619372e40b550b562e85dc802be0ea56859cb9ff3d823636a28f5bcc", 11303509, archiveZip),
+			ortMirror(onnxRuntimeMirrorVersion, "onnxruntime-linux-x64-glibc2_17-Release-1.29.0.zip",
+				"onnxruntime-linux-x64-glibc2_17-Release-1.29.0/lib/libonnxruntime.so",
+				"fe577086452c462e5004a56715be219fd4ca951bf8e95d038b468cb7e49bbad5", 10698263, archiveZip),
 		},
 	},
 	"linux/arm64": {
@@ -158,9 +162,9 @@ var runtimeAssets = map[string]runtimeAsset{
 			ortOfficial("onnxruntime-linux-aarch64-1.29.0.tgz",
 				"onnxruntime-linux-aarch64-1.29.0/lib/libonnxruntime.so.1.29.0",
 				"e1799098ebc054b370f6176a450f158720f297818c613e5dc99b92e2ec82346f", 10027600, archiveTarGz),
-			ortMirror("onnxruntime-linux-aarch64-glibc2_17-Release-1.31.0.zip",
-				"onnxruntime-linux-aarch64-glibc2_17-Release-1.31.0/lib/libonnxruntime.so",
-				"f05f18c4d17514ebba8959faf8cf694073183a1efcad05ed76d88dfcbf78f7ce", 14612767, archiveZip),
+			ortMirror(onnxRuntimeMirrorVersion, "onnxruntime-linux-aarch64-glibc2_17-Release-1.29.0.zip",
+				"onnxruntime-linux-aarch64-glibc2_17-Release-1.29.0/lib/libonnxruntime.so",
+				"790fae667f7e4018b065ecb2b3f086d922fc33aaee240e396826558835c8b61d", 13554186, archiveZip),
 		},
 	},
 	"darwin/arm64": {
@@ -169,9 +173,9 @@ var runtimeAssets = map[string]runtimeAsset{
 			ortOfficial("onnxruntime-osx-arm64-1.29.0.tgz",
 				"onnxruntime-osx-arm64-1.29.0/lib/libonnxruntime.1.29.0.dylib",
 				"d0706fc34f315d8c88639d0a8c81f2e09e815f282cabed3493c06a054352cf92", 41578864, archiveTarGz),
-			ortMirror("onnxruntime-osx-arm64-1.31.0.zip",
-				"onnxruntime-osx-arm64-1.31.0/lib/libonnxruntime.dylib",
-				"60a558189937147849ffc90240f57444198d3f57d7c7cf290e07b2dabd5d90a0", 8838369, archiveZip),
+			ortMirror(onnxRuntimeMirrorVersion, "onnxruntime-osx-arm64-1.29.0.zip",
+				"onnxruntime-osx-arm64-1.29.0/lib/libonnxruntime.dylib",
+				"acbc4e0c4cb1b14979c929a80c25f1564e5c6d0afba4d0500f80316262ed6d92", 9137933, archiveZip),
 		},
 	},
 	"windows/amd64": {
@@ -180,9 +184,9 @@ var runtimeAssets = map[string]runtimeAsset{
 			ortOfficial("onnxruntime-win-x64-1.29.0.zip",
 				"onnxruntime-win-x64-1.29.0/lib/onnxruntime.dll",
 				"c9b4b7086b529ad814f428c1bad028e20a25d7dc0699836775faace4ab5b78b2", 79645520, archiveZip),
-			ortMirror("onnxruntime-win-x64-MD-Release-1.31.0.tar.bz2",
-				"onnxruntime-win-x64-MD-Release-1.31.0/lib/onnxruntime.dll",
-				"14076e3cfa720b0a43a0afbd848904d3d6d33e0881d2997c7296b47a54f3cd9d", 7193503, archiveTarBz2),
+			ortMirror(onnxRuntimeMirrorVersion, "onnxruntime-win-x64-MD-Release-1.29.0.tar.bz2",
+				"onnxruntime-win-x64-MD-Release-1.29.0/lib/onnxruntime.dll",
+				"625749fed37090434a8d39ca983297e2139fbc99500083337917889b05f0da94", 6038869, archiveTarBz2),
 		},
 	},
 	"windows/arm64": {
@@ -192,8 +196,10 @@ var runtimeAssets = map[string]runtimeAsset{
 				"onnxruntime-win-arm64-1.29.0/lib/onnxruntime.dll",
 				"a094a49c3ced0f9fca554647cc7566ae99d93a63a8ce6bf47975561c2de7608e", 81679033, archiveZip),
 			// The mirror has no dynamic windows/arm64 build for 1.29.0, only
-			// static libs; 1.31.0 is the first release that ships one.
-			ortMirror("onnxruntime-win-arm64-MD-Release-1.31.0.tar.bz2",
+			// static libs, so this platform falls back to 1.31.0 - the oldest
+			// release that ships a loadable arm64 DLL. Logged like any other
+			// fallback, so the version actually used is never ambiguous.
+			ortMirror("1.31.0", "onnxruntime-win-arm64-MD-Release-1.31.0.tar.bz2",
 				"onnxruntime-win-arm64-MD-Release-1.31.0/lib/onnxruntime.dll",
 				"283eaa9aa28cc9c9583b3b1e9ae117da2ecc64b26012e744d745f7c56e727551", 6950618, archiveTarBz2),
 		},

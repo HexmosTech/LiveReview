@@ -325,8 +325,9 @@ into `~/.dbctx/onnxruntime/<version>/` and loaded with `dlopen`, so a build
 never depends on it. Microsoft's `onnxruntime` GitHub releases went 404 in
 late 2026, so `internal/docindex/embedder.go` now resolves the library from an
 ordered source list: Microsoft's release assets first, then the
-`csukuangfj/onnxruntime-libs` mirror, each with its own pinned SHA-256 and
-archive layout. A cached copy from any source wins over the network, and the
+`csukuangfj/onnxruntime-libs` mirror at the same 1.29.0 release (1.31.0 only
+for windows/arm64, where the mirror never published a dynamic 1.29.0 build),
+each source with its own pinned SHA-256 and archive layout. A cached copy from any source wins over the network, and the
 resolved path is exported as `DBCTX_ONNXRUNTIME_LIB` so dbctx's semantic
 scorer reuses it instead of hitting the same dead URL. If every source fails,
 both semantic features degrade (docindex to no retrieval, dbctx to lexical
