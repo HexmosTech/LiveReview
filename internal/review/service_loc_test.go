@@ -36,14 +36,16 @@ func (f *fixedAIProviderFactory) SupportsAIProvider(aiType string) bool {
 	return true
 }
 
-type mutatingAIProvider struct{}
+type mutatingAIProvider struct {
+	comments []*models.ReviewComment
+}
 
 func (p *mutatingAIProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDiff) (*models.ReviewResult, error) {
-	return &models.ReviewResult{Summary: "mock summary", Comments: []*models.ReviewComment{}}, nil
+	return &models.ReviewResult{Summary: "mock summary", Comments: p.comments}, nil
 }
 
 func (p *mutatingAIProvider) ReviewCodeBatch(ctx context.Context, diffs []models.CodeDiff) (*batch.BatchResult, error) {
-	return &batch.BatchResult{Summary: "mock summary", Comments: []*models.ReviewComment{}}, nil
+	return &batch.BatchResult{Summary: "mock summary", Comments: p.comments}, nil
 }
 
 func (p *mutatingAIProvider) ReviewCodeWithBatching(ctx context.Context, diffs []*models.CodeDiff, batchProcessor *batch.BatchProcessor) (*models.ReviewResult, error) {
@@ -53,7 +55,7 @@ func (p *mutatingAIProvider) ReviewCodeWithBatching(ctx context.Context, diffs [
 			diffs[i].Hunks[j].Content = "OLD | NEW | CONTENT\n----|-----|--------\n  1 |     | -old\n    |   1 | +new\n    |   2 | +added"
 		}
 	}
-	return &models.ReviewResult{Summary: "mock summary", Comments: []*models.ReviewComment{}}, nil
+	return &models.ReviewResult{Summary: "mock summary", Comments: p.comments}, nil
 }
 
 func (p *mutatingAIProvider) Configure(config map[string]interface{}) error {
@@ -156,7 +158,9 @@ func TestProcessReview_HelperStageFailure_FallsBackToLeaderOnly(t *testing.T) {
 
 	svc := NewService(
 		&preloadedOnlyProviderFactory{},
-		&fixedAIProviderFactory{provider: &mutatingAIProvider{}},
+		&fixedAIProviderFactory{provider: &mutatingAIProvider{comments: []*models.ReviewComment{
+			{FilePath: "main.cpp", Line: 1, Content: "leader comment"},
+		}}},
 		Config{ReviewTimeout: 5 * time.Second, DefaultAI: "mock", DefaultModel: "mock"},
 	)
 
