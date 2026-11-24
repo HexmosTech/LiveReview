@@ -73,42 +73,6 @@ const FacetSection: React.FC<{ title: string; options: FacetOption[]; onToggle: 
   );
 };
 
-const TOOL_CATEGORY_MAP: Record<string, string> = {
-  gitleaks: 'Secret Scanning',
-  trufflehog: 'Secret Scanning',
-  'detect-secrets': 'Secret Scanning',
-  semgrep: 'Security Scanning',
-  bandit: 'Security Scanning',
-  brakeman: 'Security Scanning',
-  zizmor: 'Security Scanning',
-  osv: 'Dependency Vulnerabilities',
-  trivy: 'Dependency Vulnerabilities',
-  tfsec: 'Infrastructure & IaC',
-  checkov: 'Infrastructure & IaC',
-  hadolint: 'Infrastructure & IaC',
-  kubescape: 'Infrastructure & IaC',
-  actionlint: 'CI/CD Pipeline',
-  ruff: 'Code Quality',
-  'golangci-lint': 'Code Quality',
-  eslint: 'Code Quality',
-  shellcheck: 'Code Quality',
-  rubocop: 'Code Quality',
-  ktlint: 'Code Quality',
-  phpcs: 'Code Quality',
-  openapi: 'API & Schemas',
-  spectral: 'API & Schemas',
-};
-
-const TOOL_CATEGORY_ORDER = [
-  'Secret Scanning',
-  'Security Scanning',
-  'Dependency Vulnerabilities',
-  'Infrastructure & IaC',
-  'CI/CD Pipeline',
-  'Code Quality',
-  'API & Schemas',
-];
-
 interface ToolCategoryGroup {
   category: string;
   count: number;
@@ -126,17 +90,14 @@ const SourceSection: React.FC<{
 
   const groupsMap = new Map<string, ToolCategoryGroup>();
   staticTools.forEach((tool) => {
-    const cat = TOOL_CATEGORY_MAP[tool.value.toLowerCase()] || 'Other Tools';
+    const cat = tool.category?.trim() || 'Static Tools';
     const group = groupsMap.get(cat) || { category: cat, count: 0, tools: [] };
     group.count += tool.count;
     group.tools.push(tool);
     groupsMap.set(cat, group);
   });
 
-  const orderedCategories = [
-    ...TOOL_CATEGORY_ORDER.map((c) => groupsMap.get(c)).filter(Boolean),
-    ...[...groupsMap.keys()].filter((c) => !TOOL_CATEGORY_ORDER.includes(c)).map((c) => groupsMap.get(c)!),
-  ] as ToolCategoryGroup[];
+  const orderedCategories = [...groupsMap.values()].sort((a, b) => a.category.localeCompare(b.category));
 
   const totalStaticCount = staticTools.reduce((acc, t) => acc + t.count, 0);
   const isAllStaticActive = staticTools.length > 0 && staticTools.every((t) => t.active);
@@ -164,10 +125,10 @@ const SourceSection: React.FC<{
   return (
     <div className="grid grid-cols-[minmax(120px,156px)_1fr] items-start gap-2.5">
       <span className="pt-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">Source</span>
-      <div className="grid gap-2.5">
-        {/* Primary Source Toggles: Side-by-Side */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          {aiOption && (
+      <div className="grid gap-3">
+        {/* Row 1: AI Review */}
+        {aiOption && (
+          <div className="flex items-center">
             <button
               type="button"
               onClick={() => onToggleTool('ai')}
@@ -185,39 +146,41 @@ const SourceSection: React.FC<{
                 {aiOption.count}
               </span>
             </button>
-          )}
+          </div>
+        )}
 
-          {staticTools.length > 0 && (
-            <button
-              type="button"
-              onClick={toggleAllStatic}
-              aria-pressed={isAllStaticActive}
-              title={isAllStaticActive ? 'Disable all static tools' : 'Enable all static tools'}
+        {/* Row 2: Static Tools */}
+        {staticTools.length > 0 && (
+          <div className="grid gap-2.5">
+            <div className="flex items-center">
+              <button
+                type="button"
+                onClick={toggleAllStatic}
+                aria-pressed={isAllStaticActive}
+                title={isAllStaticActive ? 'Disable all static tools' : 'Enable all static tools'}
+                className={classNames(
+                  'inline-flex min-h-[34px] items-center gap-2 rounded-md border px-3 text-[13px] font-bold transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400',
+                  isAllStaticActive
+                    ? 'border-blue-500/50 bg-blue-500/20 text-[#eef6ff]'
+                    : isAnyStaticActive
+                    ? 'border-blue-600/50 bg-blue-500/10 text-blue-200'
+                    : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.3)] text-slate-300 hover:bg-[rgba(84,94,106,0.36)] hover:text-white'
+                )}
+              >
+                <span>Static Tools</span>
+                <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-white/10 px-1.5 text-[11px] font-bold">
+                  {totalStaticCount}
+                </span>
+              </button>
+            </div>
+
+            {/* Static Tools Breakdown */}
+            <div
               className={classNames(
-                'inline-flex min-h-[34px] items-center gap-2 rounded-md border px-3 text-[13px] font-bold transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400',
-                isAllStaticActive
-                  ? 'border-blue-500/50 bg-blue-500/20 text-[#eef6ff]'
-                  : isAnyStaticActive
-                  ? 'border-blue-600/50 bg-blue-500/10 text-blue-200'
-                  : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.3)] text-slate-300 hover:bg-[rgba(84,94,106,0.36)] hover:text-white'
+                'grid gap-2.5 rounded-lg border p-2.5 transition-colors',
+                isAnyStaticActive ? 'border-blue-700/50 bg-slate-900/70' : 'border-slate-700/40 bg-slate-900/40'
               )}
             >
-              <span>Static Tools</span>
-              <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-white/10 px-1.5 text-[11px] font-bold">
-                {totalStaticCount}
-              </span>
-            </button>
-          )}
-        </div>
-
-        {/* Static Tools Breakdown */}
-        {staticTools.length > 0 && (
-          <div
-            className={classNames(
-              'grid gap-2.5 rounded-lg border p-2.5 transition-colors',
-              isAnyStaticActive ? 'border-blue-700/50 bg-slate-900/70' : 'border-slate-700/40 bg-slate-900/40'
-            )}
-          >
             {/* Directly visible categories with boundary, with tools placed underneath */}
             <div className="grid gap-2.5">
               {orderedCategories.map((catGroup) => {
@@ -285,10 +248,11 @@ const SourceSection: React.FC<{
               })}
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
-  );
+  </div>
+);
 };
 
 const CategoryTree: React.FC<{

@@ -14,16 +14,31 @@ import (
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 )
 
-// InvokeTool calls a Lambda function by its ARN using AWS SigV4 signed HTTP request, passing a payload, and returns the response body.
+// InvokeTool calls a Lambda function by its ARN or function name using AWS SigV4 signed HTTP request, passing a payload, and returns the response body.
 func InvokeTool(ctx context.Context, awsCfg aws.Config, arn string, payload []byte) ([]byte, error) {
-	// Parse region from ARN (arn:aws:lambda:us-east-1:12345:function:name)
-	parts := strings.Split(arn, ":")
-	if len(parts) < 7 {
+	// Parse region and function name from ARN (arn:aws:lambda:us-east-1:12345:function:name)
+	// or plain function name (e.g. ruff-python-linter).
+	var region, functionName string
+	if strings.HasPrefix(arn, "arn:aws:lambda:") {
+		parts := strings.Split(arn, ":")
+		if len(parts) < 7 {
+			return nil, fmt.Errorf("invalid lambda ARN: %s", arn)
+		}
+		region = parts[3]
+		functionName = parts[6]
+	} else if strings.Contains(arn, "arn") || strings.Contains(arn, ":") {
 		return nil, fmt.Errorf("invalid lambda ARN: %s", arn)
+	} else {
+		region = awsCfg.Region
+		if region == "" {
+			return nil, fmt.Errorf("AWS region is not configured in database (system_settings)")
+		}
+		functionName = arn
 	}
-	region := parts[3]
-	functionName := parts[6]
 
+	if awsCfg.Credentials == nil {
+		return nil, fmt.Errorf("AWS credentials are not configured in database (system_settings)")
+	}
 	creds, err := awsCfg.Credentials.Retrieve(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve aws credentials: %w", err)

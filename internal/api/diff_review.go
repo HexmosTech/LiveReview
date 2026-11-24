@@ -728,6 +728,10 @@ func decodeAICommentToReviewComment(dbC AIComment) *models.ReviewComment {
 	if v, ok := contentMap["tool_name"].(string); ok {
 		toolNameStr = v
 	}
+	toolCategoryStr := ""
+	if v, ok := contentMap["tool_category"].(string); ok {
+		toolCategoryStr = v
+	}
 
 	severity := models.CommentSeverity(strings.ToLower(strings.TrimSpace(sevStr)))
 	switch severity {
@@ -746,16 +750,17 @@ func decodeAICommentToReviewComment(dbC AIComment) *models.ReviewComment {
 	}
 
 	return &models.ReviewComment{
-		FilePath:    filePath,
-		Line:        lineNum,
-		Content:     cStr,
-		Severity:    severity,
-		Category:    catStr,
-		Subcategory: subCatStr,
-		Confidence:  confStr,
-		Type:        typeStr,
-		Source:      srcStr,
-		ToolName:    toolNameStr,
+		FilePath:     filePath,
+		Line:         lineNum,
+		Content:      cStr,
+		Severity:     severity,
+		Category:     catStr,
+		Subcategory:  subCatStr,
+		Confidence:   confStr,
+		Type:         typeStr,
+		Source:       srcStr,
+		ToolName:     toolNameStr,
+		ToolCategory: toolCategoryStr,
 	}
 }
 
@@ -887,6 +892,9 @@ func filterCommentsForFile(filePath string, hunks []models.DiffHunk, comments []
 		}
 		if comment.ToolName != "" {
 			item["tool_name"] = comment.ToolName
+		}
+		if comment.ToolCategory != "" {
+			item["tool_category"] = comment.ToolCategory
 		}
 		matched = append(matched, item)
 	}

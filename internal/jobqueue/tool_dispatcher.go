@@ -163,6 +163,7 @@ func (jq *JobQueue) DispatchTools(ctx context.Context, p ToolDispatchParams) (in
 			PlanCode:       string(planCode),
 			ToolID:         tool.ID,
 			ToolName:       tool.Name,
+			ToolCategory:   tool.Category,
 			LambdaARN:      tool.LambdaARN,
 			DiffZipBase64:  p.DiffZipBase64,
 			ProviderConfig: p.ProviderConfig,

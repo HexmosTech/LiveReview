@@ -211,6 +211,7 @@ type ReviewComment struct {
 	IsInternal    bool            `json:"is_internal,omitempty"`
 	Source        string          `json:"source,omitempty"`
 	ToolName      string          `json:"tool_name,omitempty"`
+	ToolCategory  string          `json:"tool_category,omitempty"`
 }
 
 // UnmarshalJSON supports unmarshaling from both snake_case and PascalCase/camelCase JSON keys.
@@ -221,25 +222,34 @@ func (r *ReviewComment) UnmarshalJSON(data []byte) error {
 	type Alias ReviewComment
 	aux := &struct {
 		*Alias
-		FilePathAlt   string `json:"FilePath"`
-		FilePathAlt2  string `json:"filePath"`
-		ToolNameAlt   string `json:"ToolName"`
-		ToolNameAlt2  string `json:"toolName"`
-		IsDeletedAlt  bool   `json:"IsDeletedLine"`
-		IsInternalAlt bool   `json:"IsInternal"`
-		ContentAlt    string `json:"Content"`
-		LineAlt       int    `json:"Line"`
-		SeverityAlt   string `json:"Severity"`
-		CategoryAlt   string `json:"Category"`
-		SubcatAlt     string `json:"Subcategory"`
-		ConfidenceAlt string `json:"Confidence"`
-		TypeAlt       string `json:"Type"`
-		SourceAlt     string `json:"Source"`
+		FilePathAlt     string `json:"FilePath"`
+		FilePathAlt2    string `json:"filePath"`
+		ToolNameAlt     string `json:"ToolName"`
+		ToolNameAlt2    string `json:"toolName"`
+		ToolCategoryAlt string `json:"ToolCategory"`
+		ToolCategoryAlt2 string `json:"toolCategory"`
+		IsDeletedAlt    bool   `json:"IsDeletedLine"`
+		IsInternalAlt   bool   `json:"IsInternal"`
+		ContentAlt      string `json:"Content"`
+		LineAlt         int    `json:"Line"`
+		SeverityAlt     string `json:"Severity"`
+		CategoryAlt     string `json:"Category"`
+		SubcatAlt       string `json:"Subcategory"`
+		ConfidenceAlt   string `json:"Confidence"`
+		TypeAlt         string `json:"Type"`
+		SourceAlt       string `json:"Source"`
 	}{
 		Alias: (*Alias)(r),
 	}
 	if err := json.Unmarshal(data, aux); err != nil {
 		return err
+	}
+	if r.ToolCategory == "" {
+		if aux.ToolCategoryAlt != "" {
+			r.ToolCategory = aux.ToolCategoryAlt
+		} else if aux.ToolCategoryAlt2 != "" {
+			r.ToolCategory = aux.ToolCategoryAlt2
+		}
 	}
 	if r.FilePath == "" {
 		if aux.FilePathAlt != "" {

@@ -47,6 +47,42 @@ type mockDBState struct {
 
 	dispatchEvents      []string
 	metaDispatchedCount int
+	toolsCatalog        []storagetools.AvailableTool
+}
+
+func (s *mockDBState) getAvailableToolRows() [][]driver.Value {
+	if s.toolsCatalog != nil {
+		rows := make([][]driver.Value, len(s.toolsCatalog))
+		for i, t := range s.toolsCatalog {
+			rows[i] = []driver.Value{t.ID, t.Name, t.Description, t.LambdaARN, t.Multiplier, t.UseCase, t.Category}
+		}
+		return rows
+	}
+	// Minimal generic test fixtures for unit tests (no real ARNs or account IDs)
+	testTools := []struct {
+		name string
+		mult float64
+	}{
+		{"ruff", 1.0},
+		{"gitleaks", 12.0},
+		{"trivy", 4.0},
+		{"semgrep", 12.0},
+		{"bandit", 12.0},
+		{"eslint", 12.0},
+	}
+	rows := make([][]driver.Value, len(testTools))
+	for i, tt := range testTools {
+		rows[i] = []driver.Value{
+			int64(i + 1),
+			tt.name,
+			tt.name,
+			"mock-lambda-" + tt.name,
+			tt.mult,
+			"test",
+			"test",
+		}
+	}
+	return rows
 }
 
 type mockDBDriver struct {
@@ -133,31 +169,14 @@ func (c *mockDBConn) QueryContext(ctx context.Context, query string, args []driv
 		return &mockRows{columns: []string{"data"}, rows: nil}, nil
 	}
 
+
 	// 1b. available_tools (LoadCatalog Tier 2)
 	if strings.Contains(query, "available_tools") {
 		return &mockRows{
-			columns: []string{"id", "name", "description", "lambda_arn", "multiplier", "use_case"},
-			rows: [][]driver.Value{
-				{int64(1), "ruff", "Fast Python linter", "arn:aws:lambda:us-east-1:042198857528:function:ruff", 1.0, "Python lint/format"},
-				{int64(2), "openapi", "OpenAPI validator", "arn:aws:lambda:us-east-1:042198857528:function:openapi", 1.0, "OpenAPI/YAML validation"},
-				{int64(3), "osv", "OSV scanner", "arn:aws:lambda:us-east-1:042198857528:function:osv", 1.0, "Dependencies"},
-				{int64(4), "gitleaks", "Gitleaks scanner", "arn:aws:lambda:us-east-1:042198857528:function:gitleaks", 12.0, "Secrets"},
-				{int64(5), "trivy", "Trivy scanner", "arn:aws:lambda:us-east-1:042198857528:function:trivy", 4.0, "Supply Chain"},
-				{int64(6), "trufflehog", "Trufflehog scanner", "arn:aws:lambda:us-east-1:042198857528:function:trufflehog", 12.0, "Secrets"},
-				{int64(7), "tfsec", "Tfsec scanner", "arn:aws:lambda:us-east-1:042198857528:function:tfsec", 1.0, "Infrastructure"},
-				{int64(8), "hadolint", "Hadolint linter", "arn:aws:lambda:us-east-1:042198857528:function:hadolint", 1.0, "Containers"},
-				{int64(9), "actionlint", "Actionlint linter", "arn:aws:lambda:us-east-1:042198857528:function:actionlint", 1.0, "CI/CD"},
-				{int64(10), "golangci-lint", "Go linter", "arn:aws:lambda:us-east-1:042198857528:function:golangci-lint", 12.0, "Go Code Quality"},
-				{int64(11), "spectral", "Spectral linter", "arn:aws:lambda:us-east-1:042198857528:function:spectral", 3.0, "API Schema"},
-				{int64(12), "bandit", "Bandit scanner", "arn:aws:lambda:us-east-1:042198857528:function:bandit", 12.0, "Python SAST"},
-				{int64(13), "detect-secrets", "Detect secrets", "arn:aws:lambda:us-east-1:042198857528:function:detect-secrets", 12.0, "Secrets"},
-				{int64(14), "semgrep", "Semgrep scanner", "arn:aws:lambda:us-east-1:042198857528:function:semgrep", 12.0, "Security"},
-				{int64(15), "eslint", "ESLint linter", "arn:aws:lambda:us-east-1:042198857528:function:eslint", 12.0, "JS/TS Code Quality"},
-			},
+			columns: []string{"id", "name", "description", "lambda_arn", "multiplier", "use_case", "category"},
+			rows:    state.getAvailableToolRows(),
 		}, nil
 	}
-
-	// 2. orgs (getOrgToolSettings)
 	if strings.Contains(query, "orgs") && strings.Contains(query, "settings") {
 		raw := state.orgSettingsJSON
 		if raw == nil {

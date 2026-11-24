@@ -10,6 +10,7 @@ export interface Tool {
 	lambda_arn: string;
 	multiplier: number;
 	use_case: string;
+	category?: string;
 	enabled: boolean;
 }
 
@@ -35,12 +36,12 @@ const ThirdPartyToolsTab: React.FC = () => {
 	const [localEnabled, setLocalEnabled] = useState<Record<number, boolean>>({});
 	const [creditUsage, setCreditUsage] = useState<{ used: number; limit: number } | null>(null);
 
-	const [sortField, setSortField] = useState<'name' | 'use_case' | 'multiplier' | 'enabled'>('name');
+	const [sortField, setSortField] = useState<'name' | 'use_case' | 'category' | 'multiplier' | 'enabled'>('name');
 	const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 	const [currentPage, setCurrentPage] = useState(1);
 	const pageSize = 10;
 
-	const handleSort = (field: 'name' | 'use_case' | 'multiplier' | 'enabled') => {
+	const handleSort = (field: 'name' | 'use_case' | 'category' | 'multiplier' | 'enabled') => {
 		if (sortField === field) {
 			setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
 		} else {
@@ -50,7 +51,7 @@ const ThirdPartyToolsTab: React.FC = () => {
 		setCurrentPage(1); // Reset to first page on sort change
 	};
 
-	const renderSortIcon = (field: 'name' | 'use_case' | 'multiplier' | 'enabled') => {
+	const renderSortIcon = (field: 'name' | 'use_case' | 'category' | 'multiplier' | 'enabled') => {
 		if (sortField !== field) {
 			return (
 				<svg className="w-3.5 h-3.5 ml-1 opacity-40 group-hover:opacity-80 transition-opacity duration-200 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -82,6 +83,9 @@ const ThirdPartyToolsTab: React.FC = () => {
 		} else if (sortField === 'use_case') {
 			valA = (a.use_case || '').toLowerCase();
 			valB = (b.use_case || '').toLowerCase();
+		} else if (sortField === 'category') {
+			valA = (a.category || '').toLowerCase();
+			valB = (b.category || '').toLowerCase();
 		} else if (sortField === 'multiplier') {
 			valA = a.multiplier;
 			valB = b.multiplier;
@@ -195,7 +199,7 @@ const ThirdPartyToolsTab: React.FC = () => {
 	const remainingLabel = formatCompactNumber(remainingCredits);
 	const exampleTool = tools.find(t => Math.abs(t.multiplier - 1.0) < 0.01)
 		|| (tools.length > 0 ? tools.reduce((min, t) => t.multiplier < min.multiplier ? t : min, tools[0]) : null);
-	const exampleToolName = exampleTool ? exampleTool.name : 'actionlint';
+	const exampleToolLabel = exampleTool ? `${exampleTool.name} at ` : 'baseline ';
 	const exampleToolMultiplier = exampleTool ? Number(exampleTool.multiplier) : 1.0;
 	const exampleToolCapacity = exampleToolMultiplier > 0 ? Math.floor(remainingCredits / exampleToolMultiplier) : Math.floor(remainingCredits);
 
@@ -232,7 +236,7 @@ const ThirdPartyToolsTab: React.FC = () => {
 					<strong className="text-amber-400">
 						{totalMultiplier > 0 
 							? `~${estimatedReviews.toLocaleString()} overall reviews with this setting` 
-							: `~${exampleToolCapacity.toLocaleString()} tool runs (e.g. ${exampleToolName} at ${exampleToolMultiplier.toFixed(1)}×)`}
+							: `~${exampleToolCapacity.toLocaleString()} tool runs (e.g. ${exampleToolLabel}${exampleToolMultiplier.toFixed(1)}×)`}
 					</strong>{' '}
 					before exhausting the budget.
 				</p>
@@ -305,7 +309,9 @@ const ThirdPartyToolsTab: React.FC = () => {
 								<span className="text-sm font-medium text-slate-400">tool runs</span>
 							</div>
 							<span className="text-xs text-slate-400 block mt-0.5">
-								e.g. ~{exampleToolCapacity.toLocaleString()} {exampleToolName} tool runs ({exampleToolMultiplier.toFixed(1)}× cost · {remainingLabel} remaining)
+								{exampleTool
+									? `e.g. ~${exampleToolCapacity.toLocaleString()} ${exampleTool.name} tool runs (${exampleToolMultiplier.toFixed(1)}× cost · ${remainingLabel} remaining)`
+									: `~${exampleToolCapacity.toLocaleString()} 1.0× tool runs (${remainingLabel} remaining)`}
 							</span>
 						</div>
 					)}
@@ -385,6 +391,14 @@ const ThirdPartyToolsTab: React.FC = () => {
 									</div>
 								</th>
 								<th 
+									onClick={() => handleSort('category')}
+									className="p-4 text-xs font-semibold uppercase tracking-wider text-slate-400 cursor-pointer hover:bg-slate-800/80 hover:text-white transition-colors duration-200 group"
+								>
+									<div className="flex items-center">
+										Category {renderSortIcon('category')}
+									</div>
+								</th>
+								<th 
 									onClick={() => handleSort('multiplier')}
 									className="p-4 text-xs font-semibold uppercase tracking-wider text-slate-400 cursor-pointer hover:bg-slate-800/80 hover:text-white transition-colors duration-200 group"
 								>
@@ -412,6 +426,15 @@ const ThirdPartyToolsTab: React.FC = () => {
 										</td>
 										<td className="p-4 text-sm text-slate-300">
 											{tool.use_case || 'General'}
+										</td>
+										<td className="p-4 text-sm text-slate-300">
+											{tool.category ? (
+												<span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-800/80 px-2.5 py-0.5 text-xs font-medium text-slate-300">
+													{tool.category}
+												</span>
+											) : (
+												<span className="text-slate-500">—</span>
+											)}
 										</td>
 										<td className="p-4 text-sm font-semibold text-slate-300">
 											{tool.multiplier.toFixed(1)}×

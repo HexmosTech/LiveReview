@@ -3,9 +3,12 @@ package jobqueue
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +17,7 @@ import (
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/review"
 	"github.com/livereview/internal/toolclassifier"
+	networktools "github.com/livereview/network/tools"
 	"github.com/livereview/pkg/models"
 	storagetools "github.com/livereview/storage/tools"
 	"github.com/riverqueue/river"
@@ -847,4 +851,131 @@ func TestPostToolCommentsToProvider_FailedProviderGraceful(t *testing.T) {
 			Severity: models.SeverityWarning,
 		},
 	}, nil)
+}
+
+type workerSettingsMockDriver struct {
+	mu   sync.Mutex
+	rows [][]driver.Value
+}
+
+func (d *workerSettingsMockDriver) Open(name string) (driver.Conn, error) {
+	return &workerSettingsMockConn{driver: d}, nil
+}
+
+type workerSettingsMockConn struct{ driver *workerSettingsMockDriver }
+
+func (c *workerSettingsMockConn) Prepare(query string) (driver.Stmt, error) {
+	return &workerSettingsMockStmt{conn: c}, nil
+}
+func (c *workerSettingsMockConn) Close() error              { return nil }
+func (c *workerSettingsMockConn) Begin() (driver.Tx, error) { return nil, nil }
+func (c *workerSettingsMockConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	c.driver.mu.Lock()
+	defer c.driver.mu.Unlock()
+	copied := make([][]driver.Value, len(c.driver.rows))
+	copy(copied, c.driver.rows)
+	return &workerSettingsMockRows{cols: []string{"name", "data"}, rows: copied}, nil
+}
+
+type workerSettingsMockStmt struct{ conn *workerSettingsMockConn }
+
+func (s *workerSettingsMockStmt) Close() error                                    { return nil }
+func (s *workerSettingsMockStmt) NumInput() int                                   { return 0 }
+func (s *workerSettingsMockStmt) Exec(args []driver.Value) (driver.Result, error) { return nil, nil }
+func (s *workerSettingsMockStmt) Query(args []driver.Value) (driver.Rows, error) {
+	return s.conn.QueryContext(context.Background(), "", nil)
+}
+
+type workerSettingsMockRows struct {
+	cols []string
+	rows [][]driver.Value
+	idx  int
+}
+
+func (r *workerSettingsMockRows) Columns() []string { return r.cols }
+func (r *workerSettingsMockRows) Close() error      { return nil }
+func (r *workerSettingsMockRows) Next(dest []driver.Value) error {
+	if r.idx >= len(r.rows) {
+		return io.EOF
+	}
+	copy(dest, r.rows[r.idx])
+	r.idx++
+	return nil
+}
+
+var (
+	workerSettingsDriverOnce sync.Once
+	workerSettingsDriver     workerSettingsMockDriver
+	workerSettingsMockDB     *sql.DB
+)
+
+func getWorkerSettingsMockDB(rows [][]driver.Value) *sql.DB {
+	workerSettingsDriverOnce.Do(func() {
+		sql.Register("tool-worker-settings-mock", &workerSettingsDriver)
+		db, err := sql.Open("tool-worker-settings-mock", "")
+		if err != nil {
+			panic(err)
+		}
+		workerSettingsMockDB = db
+	})
+	workerSettingsDriver.mu.Lock()
+	workerSettingsDriver.rows = rows
+	workerSettingsDriver.mu.Unlock()
+	return workerSettingsMockDB
+}
+
+func TestNewToolReviewWorker_StrictlyDBNoEnvOrHardcodedFallback(t *testing.T) {
+	// Even when AWS env vars are populated, worker must ignore them completely.
+	t.Setenv("AWS_ACCESS_KEY_ID", "env-key-should-be-ignored")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "env-secret-should-be-ignored")
+	t.Setenv("AWS_REGION", "eu-west-99")
+	t.Setenv("AWS_ACCOUNT_ID", "999999999999")
+
+	// 1. Nil DB / empty settings must NOT fall back to env vars or hardcoded us-east-1
+	wNil := NewToolReviewWorker(nil)
+	if wNil.region != "" {
+		t.Fatalf("expected empty region with nil DB, got %q", wNil.region)
+	}
+	if wNil.accountID != "" {
+		t.Fatalf("expected empty accountID with nil DB, got %q", wNil.accountID)
+	}
+	if wNil.awsCfg.Region != "" {
+		t.Fatalf("expected empty awsCfg.Region with nil DB, got %q", wNil.awsCfg.Region)
+	}
+	if wNil.awsCfg.Credentials != nil {
+		t.Fatalf("expected nil awsCfg.Credentials with nil DB (must not load env creds)")
+	}
+	if _, err := networktools.InvokeTool(context.Background(), wNil.awsCfg, "ruff-python-linter", []byte(`{}`)); err == nil || !strings.Contains(err.Error(), "database") {
+		t.Fatalf("expected DB configuration error from InvokeTool when worker unconfigured, got %v", err)
+	}
+
+	// 2. Empty DB rows must leave settings empty (no env fallback)
+	emptyDB := getWorkerSettingsMockDB(nil)
+	wEmpty := NewToolReviewWorker(emptyDB)
+	if wEmpty.region != "" || wEmpty.accountID != "" || wEmpty.awsCfg.Credentials != nil {
+		t.Fatalf("expected empty worker settings on empty DB, got region=%q accountID=%q creds=%v", wEmpty.region, wEmpty.accountID, wEmpty.awsCfg.Credentials)
+	}
+
+	// 3. DB rows split across aws_lambda and aws_credentials merge cleanly and override env
+	splitDB := getWorkerSettingsMockDB([][]driver.Value{
+		{"aws_lambda", []byte(`{"region":"ap-south-1","account_id":"111122223333"}`)},
+		{"aws_credentials", []byte(`{"access_key_id":"db-access-key","secret_access_key":"db-secret-key"}`)},
+	})
+	wDB := NewToolReviewWorker(splitDB)
+	if wDB.region != "ap-south-1" {
+		t.Fatalf("expected region 'ap-south-1' from DB, got %q", wDB.region)
+	}
+	if wDB.accountID != "111122223333" {
+		t.Fatalf("expected accountID '111122223333' from DB, got %q", wDB.accountID)
+	}
+	if wDB.awsCfg.Credentials == nil {
+		t.Fatalf("expected credentials from DB to be set")
+	}
+	creds, err := wDB.awsCfg.Credentials.Retrieve(context.Background())
+	if err != nil {
+		t.Fatalf("retrieve credentials: %v", err)
+	}
+	if creds.AccessKeyID != "db-access-key" || creds.SecretAccessKey != "db-secret-key" {
+		t.Fatalf("expected DB credentials, got %+v", creds)
+	}
 }

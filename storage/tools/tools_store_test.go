@@ -141,10 +141,10 @@ func getTestMockDB() *sql.DB {
 
 func mockSampleToolsRows() *mockRows {
 	return &mockRows{
-		columns: []string{"id", "name", "description", "lambda_arn", "multiplier", "use_case"},
+		columns: []string{"id", "name", "description", "lambda_arn", "multiplier", "use_case", "category"},
 		rows: [][]driver.Value{
-			{int64(1), "tool-a", "Tool A description", "arn:aws:lambda:us-east-1:042198857528:function:tool-a", 1.0, "Linting"},
-			{int64(2), "tool-b", "Tool B description", "arn:aws:lambda:us-east-1:042198857528:function:tool-b", 5.0, "Security"},
+			{int64(1), "tool-a", "Tool A description", "tool-a-linter", 1.0, "Linting", "Code Quality"},
+			{int64(2), "tool-b", "Tool B description", "tool-b-linter", 5.0, "Security", "Security Scanning"},
 		},
 	}
 }
@@ -193,7 +193,7 @@ func TestToolsStore(t *testing.T) {
 		setMockHandlers(func(query string, args []driver.NamedValue) (driver.Rows, error) {
 			if strings.Contains(query, "available_tools") {
 				return &mockRows{
-					columns: []string{"id", "name", "description", "lambda_arn", "multiplier", "use_case"},
+					columns: []string{"id", "name", "description", "lambda_arn", "multiplier", "use_case", "category"},
 					rows:    [][]driver.Value{},
 				}, nil
 			}

@@ -6,12 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/review"
@@ -30,6 +28,7 @@ type ToolReviewJobArgs struct {
 	PlanCode       string                 `json:"plan_code"`
 	ToolID         int64                  `json:"tool_id"`
 	ToolName       string                 `json:"tool_name"`
+	ToolCategory   string                 `json:"tool_category,omitempty"`
 	LambdaARN      string                 `json:"lambda_arn"`
 	DiffZipBase64  string                 `json:"diff_zip_base64"`
 	Truncated      bool                   `json:"truncated,omitempty"`
@@ -42,43 +41,80 @@ func (ToolReviewJobArgs) Kind() string { return "tool_review" }
 // ToolReviewWorker executes a single static analysis tool via AWS Lambda and stores classified findings.
 type ToolReviewWorker struct {
 	river.WorkerDefaults[ToolReviewJobArgs]
-	db     *sql.DB
-	awsCfg aws.Config
+	db        *sql.DB
+	awsCfg    aws.Config
+	region    string
+	accountID string
 }
 
 func (w *ToolReviewWorker) Timeout(job *river.Job[ToolReviewJobArgs]) time.Duration {
 	return 10 * time.Minute
 }
 
-// NewToolReviewWorker creates a new ToolReviewWorker with AWS config loaded from env.
+// NewToolReviewWorker creates a new ToolReviewWorker with AWS config and common Lambda configuration
+// (region, account ID) loaded strictly from system_settings in the database.
 func NewToolReviewWorker(db *sql.DB) *ToolReviewWorker {
-	accessKey := os.Getenv("AWS_ACCESS_KEY_ID")
-	secretKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
-	region := os.Getenv("AWS_REGION")
-	if region == "" {
-		region = "us-east-1"
-	}
+	var accessKey, secretKey, region, accountID string
 
-	var awsCfg aws.Config
-	var err error
-	if accessKey != "" && secretKey != "" {
-		awsCfg, err = config.LoadDefaultConfig(context.Background(),
-			config.WithRegion(region),
-			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
-		)
-	} else {
-		awsCfg, err = config.LoadDefaultConfig(context.Background(),
-			config.WithRegion(region),
-		)
-	}
-	if err != nil {
-		log.Printf("[WARN] ToolReviewWorker: failed to load AWS config: %v. Creating fallback config.", err)
-		awsCfg = aws.Config{Region: region}
-		if accessKey != "" && secretKey != "" {
-			awsCfg.Credentials = credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")
+	// Load AWS credentials and common settings strictly from database (no env fallback).
+	if db != nil {
+		rows, qErr := db.Query("SELECT name, data FROM public.system_settings WHERE name IN ('aws_lambda', 'aws_credentials') ORDER BY CASE WHEN name = 'aws_lambda' THEN 1 ELSE 2 END")
+		if qErr != nil {
+			log.Printf("[WARN] ToolReviewWorker: failed to load AWS settings from database: %v", qErr)
+		} else {
+			defer rows.Close()
+			for rows.Next() {
+				var name string
+				var rawData []byte
+				if scanErr := rows.Scan(&name, &rawData); scanErr != nil || len(rawData) == 0 {
+					continue
+				}
+				var creds struct {
+					AccessKeyID     string `json:"access_key_id"`
+					SecretAccessKey string `json:"secret_access_key"`
+					Access          string `json:"access"`
+					Secret          string `json:"secret"`
+					Region          string `json:"region"`
+					AccountID       string `json:"account_id"`
+				}
+				if jsonErr := json.Unmarshal(rawData, &creds); jsonErr == nil {
+					if creds.AccessKeyID != "" {
+						accessKey = creds.AccessKeyID
+					} else if creds.Access != "" {
+						accessKey = creds.Access
+					}
+					if creds.SecretAccessKey != "" {
+						secretKey = creds.SecretAccessKey
+					} else if creds.Secret != "" {
+						secretKey = creds.Secret
+					}
+					if creds.Region != "" {
+						region = creds.Region
+					}
+					if creds.AccountID != "" {
+						accountID = creds.AccountID
+					}
+				}
+			}
 		}
 	}
-	return &ToolReviewWorker{db: db, awsCfg: awsCfg}
+
+	if region == "" || accessKey == "" || secretKey == "" {
+		log.Printf("[WARN] ToolReviewWorker: incomplete AWS Lambda settings in database (region_set=%v, credentials_set=%v)", region != "", accessKey != "" && secretKey != "")
+	}
+
+	awsCfg := aws.Config{
+		Region: region,
+	}
+	if accessKey != "" && secretKey != "" {
+		awsCfg.Credentials = credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")
+	}
+	return &ToolReviewWorker{
+		db:        db,
+		awsCfg:    awsCfg,
+		region:    region,
+		accountID: accountID,
+	}
 }
 
 func (w *ToolReviewWorker) Work(ctx context.Context, job *river.Job[ToolReviewJobArgs]) error {
@@ -100,9 +136,25 @@ func (w *ToolReviewWorker) Work(ctx context.Context, job *river.Job[ToolReviewJo
 		return fmt.Errorf("failed to marshal Lambda payload: %w", err)
 	}
 
-	log.Printf("[INFO] ToolReviewWorker: invoking Lambda %s (payload %d bytes) for tool=%s review=%d...", args.LambdaARN, len(payloadBytes), args.ToolName, args.ReviewID)
+	// Build target ARN: if args.LambdaARN holds only a function name (e.g. "ruff-python-linter"),
+	// construct the full ARN using the common region and account ID loaded from the database.
+	targetARN := args.LambdaARN
+	if !strings.HasPrefix(args.LambdaARN, "arn:") && !strings.Contains(args.LambdaARN, "invalid") {
+		region := w.region
+		if region == "" {
+			region = w.awsCfg.Region
+		}
+		accountID := w.accountID
+		if region != "" && accountID != "" {
+			targetARN = fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", region, accountID, args.LambdaARN)
+		} else {
+			targetARN = args.LambdaARN
+		}
+	}
+
+	log.Printf("[INFO] ToolReviewWorker: invoking Lambda %s (payload %d bytes) for tool=%s review=%d...", targetARN, len(payloadBytes), args.ToolName, args.ReviewID)
 	// Invoke Lambda
-	outBytes, invokeErr := networktools.InvokeTool(ctx, w.awsCfg, args.LambdaARN, payloadBytes)
+	outBytes, invokeErr := networktools.InvokeTool(ctx, w.awsCfg, targetARN, payloadBytes)
 	if invokeErr != nil {
 		log.Printf("[ERROR] Lambda invocation for tool %s failed: %v", args.ToolName, invokeErr)
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -231,6 +283,9 @@ func (w *ToolReviewWorker) Work(ctx context.Context, job *river.Job[ToolReviewJo
 				if c == nil {
 					continue
 				}
+				if c.ToolCategory == "" && args.ToolCategory != "" {
+					c.ToolCategory = args.ToolCategory
+				}
 				toolComments = append(toolComments, map[string]interface{}{
 					"file_path":   c.FilePath,
 					"line":        c.Line,
@@ -241,8 +296,9 @@ func (w *ToolReviewWorker) Work(ctx context.Context, job *river.Job[ToolReviewJo
 					"confidence":  c.Confidence,
 					"type":        c.Type,
 					"suggestions": c.Suggestions,
-					"source":      "tool",
-					"tool_name":   args.ToolName,
+					"source":        "tool",
+					"tool_name":     args.ToolName,
+					"tool_category": c.ToolCategory,
 				})
 			}
 

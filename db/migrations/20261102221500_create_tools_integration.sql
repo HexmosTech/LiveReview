@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS public.available_tools (
     lambda_arn TEXT NOT NULL,
     multiplier NUMERIC(6,2) DEFAULT 1.0 NOT NULL,
     use_case TEXT DEFAULT '' NOT NULL,
+    category TEXT DEFAULT '' NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 

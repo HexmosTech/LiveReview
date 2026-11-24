@@ -8,6 +8,14 @@ import { DiffReviewComment, DiffReviewFile, DiffReviewHunk } from '../../../type
 export const DEFAULT_SEVERITIES = ['critical', 'warning', 'info'] as const;
 export const CONFIDENCE_ORDER = ['high', 'medium', 'low'];
 
+export function getToolCategory(commentOrToolName?: string | DiffReviewComment, fallbackCategory?: string): string {
+  if (!commentOrToolName) return fallbackCategory || '';
+  if (typeof commentOrToolName === 'object') {
+    return commentOrToolName.tool_category || commentOrToolName.category || fallbackCategory || '';
+  }
+  return fallbackCategory || '';
+}
+
 export interface IssueFilters {
   disabledSeverities: Set<string>;
   disabledConfidences: Set<string>;
@@ -176,6 +184,7 @@ export interface FacetOption {
   label: string;
   count: number;
   active: boolean;
+  category?: string;
 }
 
 export interface CategoryGroup extends FacetOption {
@@ -207,11 +216,15 @@ function sortByOrder(values: string[], preferredOrder: string[]): string[] {
   });
 }
 
-export function buildFilterFacets(files: DiffReviewFile[], filters: IssueFilters): FilterFacets {
+export function buildFilterFacets(
+  files: DiffReviewFile[],
+  filters: IssueFilters,
+  toolCategories?: Record<string, string>
+): FilterFacets {
   const severityCounts = new Map<string, number>();
   const confidenceCounts = new Map<string, number>();
   const typeCounts = new Map<string, { label: string; count: number }>();
-  const toolCounts = new Map<string, { label: string; count: number }>();
+  const toolCounts = new Map<string, { label: string; count: number; category?: string }>();
   let hasAnyToolFindings = false;
   // categoryKey -> { label, count, subcategories: Map<key, {label, count}> }
   const categoryMap = new Map<string, { label: string; count: number; subcategories: Map<string, { label: string; count: number }> }>();
@@ -250,8 +263,13 @@ export function buildFilterFacets(files: DiffReviewFile[], filters: IssueFilters
       if (commentMatchesFiltersExcludingField(comment, filters, 'tool')) {
         const toolKey = getCommentToolKey(comment);
         const toolLabel = getCommentToolLabel(comment);
+        const cat = comment.tool_category || (comment.source === 'tool' ? comment.category : '') || (toolCategories ? toolCategories[toolKey] : '') || '';
         const existing = toolCounts.get(toolKey);
-        toolCounts.set(toolKey, { label: toolLabel, count: (existing?.count || 0) + 1 });
+        toolCounts.set(toolKey, {
+          label: toolLabel,
+          count: (existing?.count || 0) + 1,
+          category: cat || existing?.category || '',
+        });
       }
 
       if (commentMatchesFiltersExcludingField(comment, filters, 'classification')) {
@@ -296,10 +314,11 @@ export function buildFilterFacets(files: DiffReviewFile[], filters: IssueFilters
           if (b[0] === 'ai') return 1;
           return a[1].label.localeCompare(b[1].label);
         })
-        .map(([value, { label, count }]) => ({
+        .map(([value, { label, count, category }]) => ({
           value,
           label,
           count,
+          category: category || (toolCategories ? toolCategories[value.toLowerCase()] : ''),
           active: !filters.disabledTools.has(value),
         }))
     : [];

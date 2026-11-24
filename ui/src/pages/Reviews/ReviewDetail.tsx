@@ -186,24 +186,6 @@ const ReviewDetail: React.FC = () => {
     const [dbToolMultipliers, setDbToolMultipliers] = useState<Record<string, number>>({});
     const [toolAccounting, setToolAccounting] = useState<ToolAccountingData | null>(null);
 
-    const DEFAULT_TOOL_MULTIPLIERS: Record<string, number> = useMemo(() => ({
-        ruff: 1.0,
-        bandit: 1.0,
-        gitleaks: 1.0,
-        hadolint: 0.5,
-        actionlint: 0.5,
-        shellcheck: 0.5,
-        eslint: 2.0,
-        semgrep: 3.0,
-        trufflehog: 2.0,
-        trivy: 2.5,
-        spectral: 1.0,
-        brakeman: 1.5,
-        kubescape: 2.0,
-        zizmor: 1.0,
-        openapi: 0.5,
-    }), []);
-
     const effectiveToolAccounting = useMemo<ToolAccountingData | null>(() => {
         if (toolAccounting) return toolAccounting;
         const derived = deriveToolAccounting(summary?.toolSummary, dbToolMultipliers);
@@ -231,7 +213,7 @@ const ReviewDetail: React.FC = () => {
 
             let existing = toolBreakdown.find(t => t.toolName.toLowerCase() === toolName.toLowerCase());
             if (!existing) {
-                const multiplier = dbToolMultipliers[toolName.toLowerCase()] ?? DEFAULT_TOOL_MULTIPLIERS[toolName.toLowerCase()] ?? 1.0;
+                const multiplier = dbToolMultipliers[toolName.toLowerCase()] ?? 1.0;
                 existing = {
                     toolName,
                     creditsUsed: multiplier,
@@ -292,7 +274,7 @@ const ReviewDetail: React.FC = () => {
             totalCommentsGenerated: totalComments,
             toolBreakdown,
         };
-    }, [toolAccounting, summary?.toolSummary, events, dbToolMultipliers, DEFAULT_TOOL_MULTIPLIERS]);
+    }, [toolAccounting, summary?.toolSummary, events, dbToolMultipliers]);
 
     const hasToolData = Boolean(
         effectiveToolAccounting &&

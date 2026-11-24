@@ -239,6 +239,7 @@ export interface DiffReviewComment {
   subcategory?: string;
   source?: string;
   tool_name?: string;
+  tool_category?: string;
 }
 
 export interface DiffReviewFile {
