@@ -125,6 +125,7 @@ The result: engineering becomes a business advantage. You stay ahead, your engin
 | Try LiveReview free in under 5 minutes | [Quick Start](#quick-start) |
 | Auto-approve low-risk pull requests safely | [Auto-Approve](#auto-approve) |
 | Understand Blast-Radius scoring | [Within-Diff Prioritization](#blast-radius-scoring) |
+| Review a diff with awareness of other connected repos (microservices) | [Multi-Repo Context](#multi-repo-context) |
 | Enforce checks at commit / push / PR / CI | [Org-Wide Harness](#org-wide-harness) |
 | Write a precise, custom rule for blocking a merge | [CI/CD Gates](#cicd-gates) |
 
@@ -246,6 +247,43 @@ Setting up MR/PR reviews for your provider? See the step-by-step guides for [Git
 | **Maintain Review Quality** | The high-end Leader Model still drives issue detection, so accuracy does not drop. |
 
 See it explained: [Adaptive Reviews: Cut AI Costs by 40-50%](https://hexmos.com/livereview/demo?v=6Kh4ieFj6s8).
+
+<a id="multi-repo-context"></a>
+### Multi-Repo Context for Microservices
+
+Most systems are not one repo. They are a handful of services, each in its own repo, calling each other over APIs.
+
+Connect those repos in LiveReview as **Related Repos**, and a review stops being blind to anything outside its own walls. It understands how your services call each other, in both `git-lrc` local reviews and hosted PR/MR reviews.
+
+Here is what that looks like in practice. Say a change touches a function that calls another service. LiveReview checks that call against the real routes declared in your related repos.
+
+When it finds a match, you see the related repo right in the review, along with the exact route it hits, and its full reach on the Sunburst chart, instead of that staying hidden in your own repo's call graph. This is the **Cross-repo impact** signal.
+
+| Find Impact Beyond This Repo | Visualize Impact Across Repos |
+|:---:|:---:|
+| <img src="./assets/screenshots/multi-repo/review-panel.webp" width="340"/> | <img src="./assets/screenshots/multi-repo/sunburst.webp" width="340"/> |
+
+#### Language & Framework Support
+
+How much of a repo's call graph and service boundaries LiveReview can link, by language:
+
+| Support | Languages / frameworks |
+|---|---|
+| Best support | Lua, Kotlin, C++, Perl, Objective-C, Groovy, C, Bash, Zig, Swift, CSS, SCSS, HTML, YAML, TOML, HCL, Dockerfile |
+| Good support | TypeScript, TSX, JavaScript, Python, Go, Rust, Java, R, Dart, Erlang, Elixir, Scala, Ruby, PHP, C#, SQL |
+| Basic support | OCaml, Haskell |
+| Also indexed | 130+ more, including Vue, Svelte, Astro, Solidity, Protobuf, GraphQL, JSON, Markdown, Makefile and Nix |
+
+Cross-repo links detected: `HTTP routes`, `gRPC`, `GraphQL`, `tRPC`, `async / channel`.
+
+<details>
+<summary>How does cross-repo matching work? (a more technical explanation)</summary>
+
+Say a reviewed repo has Related Repos configured (Explore → Repository → Settings → Related Repos). The review then matches the diff's touched symbols against those related repos. It checks each symbol's outbound HTTP calls against the routes those repos declare. A match adds a capped `Cross-repo impact` signal. A multi-hop match (A calls B calls C) adds a small `Cross-repo chain` signal too.
+
+No related repository is cloned or indexed on your machine for a `git-lrc` review. Only the outbound call sites in your own diff get sent. LiveReview reuses the indexes it already keeps for those repositories. The match is best-effort. If the server, relation graph, or index is unavailable, the baseline report stays unchanged.
+
+</details>
 
 <a id="understand"></a>
 ## Understand: Keep Engineers in Touch With What Changed
