@@ -31,6 +31,10 @@ Any authenticated org member; the review must belong to their org
 - View the commits included in this review (up to a preview limit, expandable),
   each with a one-line commit message underneath (truncated with a hover
   tooltip for the full text when available).
+- Expand the **Tools** readout on the right side of the header bar (`15 Tools · N findings`)
+  to inspect the static analysis breakdown grouped by status (**Failed**,
+  **In Progress**, **With Findings**, and **Clean**) with each tool's credit
+  cost and finding count (paginated at 15 tools per page when more than 15 run).
 - Navigate back to the reviews list.
 - The info bar shows a live-ticking **Elapsed** stat next to Last activity
   while a review is running, and the **Events** tab label carries a live

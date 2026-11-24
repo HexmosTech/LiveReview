@@ -46,6 +46,10 @@ export const ReviewDetailHeader: React.FC<ReviewDetailHeaderProps> = ({
     const [allCommitsShown, setAllCommitsShown] = useState(false);
 
     const statusBadge = reviewStatusBadge(review.status);
+    const hasToolPagination = (effectiveToolAccounting?.toolBreakdown?.length ?? 0) > 15;
+    const drawerContainerClass = `border-t border-slate-700/50 bg-slate-900/30 flex flex-col ${
+        risk?.kind === 'ready' || hasToolPagination ? 'md:min-h-[344px]' : 'md:min-h-[304px]'
+    }`;
 
     return (
         <div className="mb-4 bg-slate-800/80 rounded-xl border border-slate-700/70 overflow-hidden">
@@ -170,7 +174,7 @@ export const ReviewDetailHeader: React.FC<ReviewDetailHeaderProps> = ({
                         tabIndex={0}
                         aria-expanded={toolExpanded}
                         aria-label="Toggle static analysis tools"
-                        className="ml-auto shrink-0 flex items-center gap-2.5 px-3.5 self-stretch cursor-pointer group select-none hover:bg-slate-700/30 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/60"
+                        className="ml-auto shrink-0 flex items-center gap-2.5 px-3.5 self-stretch cursor-pointer group select-none hover:bg-slate-700/30 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-slate-500/60"
                         title="Toggle static analysis tools"
                     >
                         <p className="text-xs text-slate-300 whitespace-nowrap">
@@ -215,8 +219,8 @@ export const ReviewDetailHeader: React.FC<ReviewDetailHeaderProps> = ({
 
             {/* Details drawer */}
             {detailsExpanded && (
-                <div className="border-t border-slate-700/50 bg-slate-900/30">
-                    <div className="p-4 grid grid-cols-1 md:grid-cols-12 gap-4">
+                <div className={drawerContainerClass}>
+                    <div className="p-4 flex-1 grid grid-cols-1 md:grid-cols-12 md:grid-rows-[auto_1fr] gap-4">
                         {/* Commits */}
                         <div className="md:col-span-4 bg-slate-900/60 border border-slate-700/50 rounded-lg p-3.5 flex flex-col h-[135px]">
                             <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1.5 shrink-0">
@@ -367,8 +371,8 @@ export const ReviewDetailHeader: React.FC<ReviewDetailHeaderProps> = ({
 
             {/* Static Analysis Tools drawer */}
             {showToolsDropdown && toolExpanded && effectiveToolAccounting && (effectiveToolAccounting.toolBreakdown?.length ?? 0) > 0 && (
-                <div className="border-t border-slate-700/50 bg-slate-900/40">
-                    <div className="p-4">
+                <div className={drawerContainerClass}>
+                    <div className="p-4 flex-1 flex flex-col">
                         <ToolAnalysisCard data={effectiveToolAccounting} embedded={true} isExpanded={true} hideSummary={true} />
                     </div>
                 </div>

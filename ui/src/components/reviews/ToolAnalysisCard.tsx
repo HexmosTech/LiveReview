@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 
 export interface ToolBreakdownItem {
   toolName: string;
@@ -21,7 +20,41 @@ interface ToolAnalysisCardProps {
   isExpanded?: boolean;
   onToggle?: () => void;
   hideSummary?: boolean;
+  onToolSelect?: (item: ToolBreakdownItem) => void;
 }
+
+const isToolClean = (item: ToolBreakdownItem): boolean =>
+  item.commentsGenerated === 0 &&
+  item.status !== 'failed' &&
+  item.status !== 'running' &&
+  item.status !== 'pending' &&
+  item.status !== 'partial';
+
+const sortByImpact = (items: ToolBreakdownItem[]): ToolBreakdownItem[] =>
+  [...items].sort((a, b) => {
+    const getPriority = (item: ToolBreakdownItem) => {
+      if (item.status === 'failed') return 1;
+      if (item.commentsGenerated > 0) return 2;
+      if (item.status === 'partial') return 3;
+      if (item.status === 'running') return 4;
+      if (item.status === 'pending') return 5;
+      return 6;
+    };
+    const pDiff = getPriority(a) - getPriority(b);
+    if (pDiff !== 0) return pDiff;
+    if (a.commentsGenerated !== b.commentsGenerated) {
+      return b.commentsGenerated - a.commentsGenerated;
+    }
+    return a.toolName.localeCompare(b.toolName);
+  });
+
+const safeCredits = (credits: unknown): number =>
+  typeof credits === 'number' && Number.isFinite(credits) ? credits : 0;
+
+const sumGroupCredits = (items: ToolBreakdownItem[]): number =>
+  items.reduce((sum, item) => sum + safeCredits(item.creditsUsed), 0);
+
+const PAGE_SIZE = 15;
 
 export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({
   data,
@@ -29,536 +62,355 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({
   isExpanded,
   onToggle,
   hideSummary = false,
+  onToolSelect,
 }) => {
   const [internalExpanded, setInternalExpanded] = useState(false);
-  // Use controlled expanded if provided, otherwise use internal state
-  const expanded = isExpanded !== undefined ? isExpanded : internalExpanded;
-  const setExpanded = onToggle !== undefined ? () => onToggle() : setInternalExpanded;
-  const [sortBy, setSortBy] = useState<'status' | 'name' | 'credits'>('status');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'findings' | 'partial' | 'clean' | 'running' | 'queued' | 'failed'>('all');
   const [page, setPage] = useState(0);
-  const PAGE_SIZE = 8;
+  const expanded = isExpanded !== undefined ? isExpanded : internalExpanded;
+  const handleToggle = () => (onToggle !== undefined ? onToggle() : setInternalExpanded((prev) => !prev));
 
-  const totalTools = data.toolBreakdown.length || data.toolsExecuted;
-  const activeRunningTools = data.toolBreakdown.filter((t) => t.status === 'running');
-  const queuedTools = data.toolBreakdown.filter((t) => t.status === 'pending');
-  const completedTools = data.toolBreakdown.filter((t) => t.status !== 'running' && t.status !== 'pending');
+  const breakdown = data?.toolBreakdown ?? [];
+  const totalComments = data?.totalCommentsGenerated ?? 0;
+  const totalTools = breakdown.length || (data?.toolsExecuted ?? 0);
+  const activeRunningTools = breakdown.filter((t) => t.status === 'running');
+  const queuedTools = breakdown.filter((t) => t.status === 'pending');
+  const completedTools = breakdown.filter((t) => t.status !== 'running' && t.status !== 'pending');
 
   const isRunning = activeRunningTools.length > 0;
   const isQueued = queuedTools.length > 0 && activeRunningTools.length === 0;
-  const hasFindings = data.totalCommentsGenerated > 0;
-  const hasFailures = data.toolBreakdown.some((item) => item.status === 'failed');
-  const hasPartial = data.toolBreakdown.some((item) => item.status === 'partial');
+  const hasFindings = totalComments > 0;
+  const hasFailures = breakdown.some((item) => item.status === 'failed');
+  const hasPartial = breakdown.some((item) => item.status === 'partial');
 
-  // Count tools by status for filter tabs
-  const findingsCount = data.toolBreakdown.filter((t) => t.commentsGenerated > 0).length;
-  const partialCount = data.toolBreakdown.filter((t) => t.status === 'partial').length;
-  const cleanCount = data.toolBreakdown.filter(
-    (t) =>
-      t.status === 'clean' ||
-      (t.commentsGenerated === 0 &&
+  // Group tools by outcome and order by impact, then paginate at PAGE_SIZE so 100+ tools stay bounded without scrolling
+  const failedAll = sortByImpact(breakdown.filter((t) => t.status === 'failed'));
+  const inProgressAll = sortByImpact(
+    breakdown.filter((t) => t.status === 'running' || t.status === 'pending')
+  );
+  const findingsAll = sortByImpact(
+    breakdown.filter(
+      (t) =>
         t.status !== 'failed' &&
         t.status !== 'running' &&
         t.status !== 'pending' &&
-        t.status !== 'partial')
-  ).length;
-  const activeRunningCount = activeRunningTools.length;
-  const queuedCount = queuedTools.length;
-  const failedCount = data.toolBreakdown.filter((t) => t.status === 'failed').length;
+        (t.commentsGenerated > 0 || t.status === 'partial')
+    )
+  );
+  const cleanAll = sortByImpact(
+    breakdown.filter(
+      (t) =>
+        t.status !== 'failed' &&
+        t.status !== 'running' &&
+        t.status !== 'pending' &&
+        isToolClean(t)
+    )
+  );
 
-  // Filter items
-  const filteredTools = data.toolBreakdown.filter((t) => {
-    if (statusFilter === 'findings') return t.commentsGenerated > 0;
-    if (statusFilter === 'partial') return t.status === 'partial';
-    if (statusFilter === 'clean') {
+  const orderedTools = [...failedAll, ...inProgressAll, ...findingsAll, ...cleanAll];
+  const totalItems = orderedTools.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages - 1);
+  const startIdx = currentPage * PAGE_SIZE;
+  const endIdx = Math.min(startIdx + PAGE_SIZE, totalItems);
+  const pageItems = orderedTools.slice(startIdx, endIdx);
+
+  const failedGroup = pageItems.filter((t) => t.status === 'failed');
+  const inProgressGroup = pageItems.filter((t) => t.status === 'running' || t.status === 'pending');
+  const findingsGroup = pageItems.filter(
+    (t) =>
+      t.status !== 'failed' &&
+      t.status !== 'running' &&
+      t.status !== 'pending' &&
+      (t.commentsGenerated > 0 || t.status === 'partial')
+  );
+  const cleanGroup = pageItems.filter(
+    (t) =>
+      t.status !== 'failed' &&
+      t.status !== 'running' &&
+      t.status !== 'pending' &&
+      isToolClean(t)
+  );
+
+  const formatGroupCount = (visibleCount: number, totalGroupCount: number) =>
+    visibleCount < totalGroupCount ? `${visibleCount} of ${totalGroupCount}` : `${totalGroupCount}`;
+
+  const renderStatusDot = (item: ToolBreakdownItem) => {
+    if (item.status === 'failed') {
+      return <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" aria-hidden="true" />;
+    }
+    if (item.status === 'running') {
+      return <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse motion-reduce:animate-none shrink-0" aria-hidden="true" />;
+    }
+    if (item.commentsGenerated > 0 || item.status === 'partial') {
+      return <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" aria-hidden="true" />;
+    }
+    if (item.status === 'pending') {
+      return <span className="w-2 h-2 rounded-full bg-slate-500 shrink-0" aria-hidden="true" />;
+    }
+    return <span className="w-2 h-2 rounded-full bg-emerald-400/75 shrink-0" aria-hidden="true" />;
+  };
+
+  const renderTileOutcome = (item: ToolBreakdownItem) => {
+    if (item.status === 'running') {
       return (
-        t.status === 'clean' ||
-        (t.commentsGenerated === 0 &&
-          t.status !== 'failed' &&
-          t.status !== 'running' &&
-          t.status !== 'pending' &&
-          t.status !== 'partial')
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-400">
+          <svg className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          </svg>
+          Running
+        </span>
       );
     }
-    if (statusFilter === 'running') return t.status === 'running';
-    if (statusFilter === 'queued') return t.status === 'pending';
-    if (statusFilter === 'failed') return t.status === 'failed';
-    return true;
-  });
-
-  // Sort items
-  const sortedTools = [...filteredTools].sort((a, b) => {
-    if (sortBy === 'name') {
-      return a.toolName.localeCompare(b.toolName);
+    if (item.status === 'pending') {
+      return <span className="text-xs text-slate-400">Queued</span>;
     }
-    if (sortBy === 'credits') {
-      return (b.creditsUsed ?? 0) - (a.creditsUsed ?? 0);
+    if (item.status === 'failed') {
+      return <span className="text-xs font-medium text-red-400">Failed</span>;
     }
-    // Default: Sort by Status priority (Findings > Failed > Partial > Running > Pending > Clean)
-    const getPriority = (item: ToolBreakdownItem) => {
-      if (item.commentsGenerated > 0) return 1;
-      if (item.status === 'failed') return 2;
-      if (item.status === 'partial') return 3;
-      if (item.status === 'running') return 4;
-      if (item.status === 'pending') return 5;
-      return 6;
-    };
-    return getPriority(a) - getPriority(b);
-  });
+    if (item.status === 'partial') {
+      return (
+        <span className="text-xs text-slate-300 tabular-nums" title="Diff was truncated/capped at limits">
+          {item.commentsGenerated > 0 ? (
+            <>
+              <span className="text-slate-100 font-semibold">{item.commentsGenerated}</span>{' '}
+              <span className="text-slate-400">partial</span>
+            </>
+          ) : (
+            'Partial'
+          )}
+        </span>
+      );
+    }
+    return (
+      <span className="text-xs tabular-nums">
+        <span className="text-slate-100 font-semibold">{item.commentsGenerated}</span>{' '}
+        <span className="text-slate-400">{item.commentsGenerated === 1 ? 'finding' : 'findings'}</span>
+      </span>
+    );
+  };
 
-  const totalPages = Math.ceil(sortedTools.length / PAGE_SIZE);
-  const safePage = Math.min(page, Math.max(0, totalPages - 1));
-  const pagedTools = sortedTools.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const renderTile = (item: ToolBreakdownItem, tone: 'danger' | 'primary', idx: number) => {
+    const clickable = Boolean(onToolSelect);
+    const cardClass =
+      tone === 'danger'
+        ? 'bg-red-950/25 border-red-900/50 hover:border-red-800/70'
+        : 'bg-slate-900/80 border-slate-700/60 hover:border-slate-600/80';
+
+    return (
+      <div
+        key={`${item.toolName}-${idx}`}
+        onClick={clickable ? () => onToolSelect?.(item) : undefined}
+        className={`border rounded-lg px-4 py-3 transition-colors ${cardClass} ${
+          clickable ? 'cursor-pointer' : ''
+        }`}
+        title={
+          item.status === 'partial'
+            ? `${item.toolName} · Diff truncated/capped at limits`
+            : `${item.toolName} · ${safeCredits(item.creditsUsed).toFixed(1)} credits`
+        }
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {renderStatusDot(item)}
+          <span className="font-mono text-[13px] font-semibold text-slate-100 truncate">
+            {item.toolName}
+          </span>
+        </div>
+        <div className="mt-1.5 flex items-baseline gap-1.5 text-xs tabular-nums">
+          {renderTileOutcome(item)}
+          <span className="text-slate-600" aria-hidden="true">·</span>
+          <span className="font-mono text-slate-400">
+            {safeCredits(item.creditsUsed).toFixed(1)} cr
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  const hasPrimaryGroups = failedGroup.length > 0 || inProgressGroup.length > 0 || findingsGroup.length > 0;
 
   return (
     <div
       className={`w-full ${
         embedded
-          ? ''
+          ? 'flex-1 flex flex-col'
           : 'bg-slate-900/90 border border-slate-700/80 rounded-xl p-4 shadow-xl text-xs overflow-hidden transition-all duration-200'
       }`}
     >
-      {/* Summary Bar */}
+      {/* Standalone summary bar when rendered outside ReviewDetailHeader */}
       {!hideSummary && (
-        <div className="flex flex-wrap items-center justify-between gap-3 select-none">
-          <div className="flex items-center gap-3">
-            {/* Dynamic Status Icon */}
-            {isRunning ? (
-              <div className="p-1.5 rounded-lg bg-blue-950/60 border border-blue-700/50">
-                <svg className="w-4 h-4 text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-              </div>
-            ) : isQueued ? (
-              <div className="p-1.5 rounded-lg bg-slate-800 border border-slate-700">
-                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-            ) : hasFailures ? (
-              <div className="p-1.5 rounded-lg bg-red-950/60 border border-red-800/60">
-                <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-            ) : hasFindings || hasPartial ? (
-              <div className="p-1.5 rounded-lg bg-amber-950/60 border border-amber-800/60">
-                <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-              </div>
-            ) : (
-              <div className="p-1.5 rounded-lg bg-emerald-950/60 border border-emerald-800/60">
-                <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-            )}
-
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-bold text-white tracking-wide">
-                  Static Analysis Tools
-                </h2>
-
-                {/* Dynamic Status Badge */}
-                {isRunning ? (
-                  <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-blue-950/80 text-blue-300 border border-blue-700/60 font-semibold animate-pulse">
-                    Running ({completedTools.length}/{totalTools})
-                  </span>
-                ) : isQueued ? (
-                  <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-medium">
-                    Queued (0/{totalTools})
-                  </span>
-                ) : (
-                  <span
-                    className={`font-mono text-[11px] px-2 py-0.5 rounded border font-semibold ${
-                      hasFailures
-                        ? 'bg-red-950/60 text-red-300 border-red-800/60'
-                        : hasFindings
-                        ? 'bg-amber-950/60 text-amber-300 border-amber-800/60'
-                        : hasPartial
-                        ? 'bg-amber-950/60 text-amber-300 border-amber-800/60'
-                        : 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60'
-                    }`}
-                  >
-                    {hasFindings
-                      ? `${data.totalCommentsGenerated} ${data.totalCommentsGenerated === 1 ? 'Finding' : 'Findings'} Flagged${hasPartial ? ' (Partial)' : ''}`
-                      : hasFailures
-                      ? 'Tools Failed'
-                      : hasPartial
-                      ? 'Diff Capped at Limits (Partial)'
-                      : 'All Clean'}
-                  </span>
-                )}
-              </div>
-            </div>
+        <div
+          className="flex flex-wrap items-center justify-between gap-3 select-none cursor-pointer"
+          onClick={handleToggle}
+        >
+          <div className="flex items-center gap-2.5">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isRunning
+                  ? 'bg-blue-400 animate-pulse motion-reduce:animate-none'
+                  : isQueued
+                  ? 'bg-slate-500'
+                  : hasFailures
+                  ? 'bg-red-400'
+                  : hasFindings || hasPartial
+                  ? 'bg-blue-400'
+                  : 'bg-emerald-400'
+              }`}
+            />
+            <h2 className="text-sm font-semibold text-white tracking-wide">Static Analysis Tools</h2>
+            <span className="text-xs text-slate-400">
+              {isRunning
+                ? `Running ${completedTools.length}/${totalTools}`
+                : isQueued
+                ? `Queued 0/${totalTools}`
+                : hasFailures
+                ? 'Failed'
+                : hasFindings
+                ? `${totalComments} ${totalComments === 1 ? 'finding' : 'findings'}`
+                : 'All clean'}
+            </span>
           </div>
 
-          {/* Dynamic Metric Summary */}
-          <div className="flex items-center gap-4 text-xs font-mono">
-            <div className="hidden sm:flex items-center gap-3 text-slate-300">
-              <span>
-                <strong className="text-white">{totalTools}</strong> {totalTools === 1 ? 'Tool' : 'Tools'}
-              </span>
-              <span className="text-slate-600">•</span>
-              <span>
-                <strong className={hasFindings ? 'text-amber-400' : 'text-slate-300'}>
-                  {data.totalCommentsGenerated}
-                </strong>{' '}
-                {data.totalCommentsGenerated === 1 ? 'Finding' : 'Findings'}
-              </span>
-              <span className="text-slate-600">•</span>
-              <span className="text-slate-300">
-                <strong className="text-slate-200">{(data.totalToolCredits ?? 0).toFixed(1)}</strong> cr
-              </span>
-            </div>
+          <div className="flex items-center gap-3 text-xs font-mono text-slate-400">
+            <span>
+              <strong className="text-slate-200">{totalTools}</strong> {totalTools === 1 ? 'tool' : 'tools'}
+            </span>
+            <span className="text-slate-600">·</span>
+            <span>{safeCredits(data?.totalToolCredits).toFixed(1)} cr</span>
           </div>
         </div>
       )}
 
-      {/* Expanded Multi-Column Panel with Framer Motion Animation */}
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2 }}
-            className="w-full mt-1.5 pt-0.5"
-          >
-            {/* Controls Bar: Grouped Filter & Sort Pills Aligned to the Right */}
-            <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1.5 pb-2 mb-2">
-              {/* Filter Pills */}
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-slate-400 font-medium text-[11px] shrink-0 mr-1">Filter:</span>
-
-                <button
-                  type="button"
-                  onClick={() => setStatusFilter('all')}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                    statusFilter === 'all'
-                      ? 'bg-slate-700 text-white font-semibold border border-slate-500'
-                      : 'bg-slate-800/80 text-slate-400 border border-slate-700 hover:text-slate-200'
-                  }`}
-                >
-                  All ({totalTools})
-                </button>
-
-                {findingsCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setStatusFilter('findings')}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                      statusFilter === 'findings'
-                        ? 'bg-amber-950 text-amber-300 font-semibold border border-amber-700/60'
-                        : 'bg-slate-800/80 text-amber-400/80 border border-slate-700 hover:text-amber-300'
-                    }`}
-                  >
-                    Findings ({findingsCount})
-                  </button>
-                )}
-
-                {partialCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setStatusFilter('partial')}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                      statusFilter === 'partial'
-                        ? 'bg-amber-950 text-amber-300 font-semibold border border-amber-700/60'
-                        : 'bg-slate-800/80 text-amber-400/80 border border-slate-700 hover:text-amber-300'
-                    }`}
-                  >
-                    Partial ({partialCount})
-                  </button>
-                )}
-
-                {activeRunningCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setStatusFilter('running')}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                      statusFilter === 'running'
-                        ? 'bg-blue-950 text-blue-300 font-semibold border border-blue-700/60'
-                        : 'bg-slate-800/80 text-blue-400/80 border border-slate-700 hover:text-blue-300'
-                    }`}
-                  >
-                    Running ({activeRunningCount})
-                  </button>
-                )}
-
-                {queuedCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setStatusFilter('queued')}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                      statusFilter === 'queued'
-                        ? 'bg-slate-700 text-slate-200 font-semibold border border-slate-500'
-                        : 'bg-slate-800/80 text-slate-400 border border-slate-700 hover:text-slate-200'
-                    }`}
-                  >
-                    Queued ({queuedCount})
-                  </button>
-                )}
-
-                {cleanCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setStatusFilter('clean')}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                      statusFilter === 'clean'
-                        ? 'bg-slate-700 text-slate-200 font-semibold border border-slate-600'
-                        : 'bg-slate-800/80 text-slate-400 border border-slate-700 hover:text-slate-200'
-                    }`}
-                  >
-                    Clean ({cleanCount})
-                  </button>
-                )}
-
-                {failedCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setStatusFilter('failed')}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                      statusFilter === 'failed'
-                        ? 'bg-red-950 text-red-300 font-semibold border border-red-700/60'
-                        : 'bg-slate-800/80 text-red-400/80 border border-slate-700 hover:text-red-300'
-                    }`}
-                  >
-                    Failed ({failedCount})
-                  </button>
-                )}
+      {expanded && (
+        <div
+          className={`w-full ${
+            embedded ? 'flex-1 flex flex-col justify-between gap-3' : 'space-y-3'
+          } ${hideSummary ? '' : 'mt-3 pt-3 border-t border-slate-800'}`}
+        >
+          <div className="space-y-3">
+          {failedGroup.length > 0 && (
+            <section>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-red-300 uppercase tracking-widest">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-400" aria-hidden="true" />
+                  Failed ({formatGroupCount(failedGroup.length, failedAll.length)})
+                </span>
+                <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                  {sumGroupCredits(failedAll).toFixed(1)} cr
+                </span>
               </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
+                {failedGroup.map((item, idx) => renderTile(item, 'danger', idx))}
+              </div>
+            </section>
+          )}
 
-              {/* Subtle Vertical Separator */}
-              <span className="text-slate-700 hidden sm:inline">•</span>
+          {inProgressGroup.length > 0 && (
+            <section>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse motion-reduce:animate-none" aria-hidden="true" />
+                  In Progress ({formatGroupCount(inProgressGroup.length, inProgressAll.length)})
+                </span>
+                <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                  {activeRunningTools.length} running · {queuedTools.length} queued
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
+                {inProgressGroup.map((item, idx) => renderTile(item, 'primary', idx))}
+              </div>
+            </section>
+          )}
 
-              {/* Sort Pills */}
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-slate-400 font-medium text-[11px] shrink-0 mr-1">Sort:</span>
+          {findingsGroup.length > 0 && (
+            <section>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
+                  {findingsAll.some((t) => t.status === 'partial' && t.commentsGenerated === 0)
+                    ? `Findings & Partial (${formatGroupCount(findingsGroup.length, findingsAll.length)})`
+                    : `With Findings (${formatGroupCount(findingsGroup.length, findingsAll.length)})`}
+                </span>
+                <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                  {totalComments} {totalComments === 1 ? 'finding' : 'findings'} ·{' '}
+                  {sumGroupCredits(findingsAll).toFixed(1)} cr
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
+                {findingsGroup.map((item, idx) => renderTile(item, 'primary', idx))}
+              </div>
+            </section>
+          )}
+
+          {cleanGroup.length > 0 && (
+            <section className={hasPrimaryGroups ? 'pt-3 border-t border-slate-800/70' : ''}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
+                  Clean ({formatGroupCount(cleanGroup.length, cleanAll.length)})
+                </span>
+                <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                  {sumGroupCredits(cleanAll).toFixed(1)} cr
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2.5">
+                {cleanGroup.map((item, idx) => {
+                  const clickable = Boolean(onToolSelect);
+                  return (
+                    <div
+                      key={`${item.toolName}-${idx}`}
+                      onClick={clickable ? () => onToolSelect?.(item) : undefined}
+                      className={`inline-flex items-center gap-2 bg-slate-900/50 border border-slate-800/90 hover:border-slate-700 rounded-lg px-3.5 py-2 transition-colors ${
+                        clickable ? 'cursor-pointer' : ''
+                      }`}
+                      title={`${item.toolName} · Clean · ${safeCredits(item.creditsUsed).toFixed(1)} credits`}
+                    >
+                      {renderStatusDot(item)}
+                      <span className="font-mono text-xs font-medium text-slate-200">
+                        {item.toolName}
+                      </span>
+                      <span className="text-slate-600 text-xs" aria-hidden="true">·</span>
+                      <span className="font-mono text-xs text-slate-400 tabular-nums">
+                        {safeCredits(item.creditsUsed).toFixed(1)} cr
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800/70 text-[11px]">
+              <span className="font-mono text-slate-400 tabular-nums">
+                Showing {startIdx + 1}–{endIdx} of {totalItems} tools
+              </span>
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setSortBy('status')}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                    sortBy === 'status'
-                      ? 'bg-slate-700 text-white font-semibold border border-slate-500'
-                      : 'bg-slate-800/80 text-slate-400 border border-slate-700 hover:text-slate-200'
-                  }`}
-                  title="Sort by Status Priority"
+                  aria-label="Previous page of tools"
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={currentPage === 0}
+                  className="px-2.5 py-1 rounded border border-slate-700/70 bg-slate-900/70 text-slate-300 hover:border-slate-500 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 >
-                  Status
+                  ← Prev
                 </button>
+                <span className="px-2 font-mono text-slate-300 tabular-nums">
+                  {currentPage + 1} / {totalPages}
+                </span>
                 <button
                   type="button"
-                  onClick={() => setSortBy('name')}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                    sortBy === 'name'
-                      ? 'bg-slate-700 text-white font-semibold border border-slate-500'
-                      : 'bg-slate-800/80 text-slate-400 border border-slate-700 hover:text-slate-200'
-                  }`}
-                  title="Sort by Name A–Z"
+                  aria-label="Next page of tools"
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={currentPage >= totalPages - 1}
+                  className="px-2.5 py-1 rounded border border-slate-700/70 bg-slate-900/70 text-slate-300 hover:border-slate-500 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 >
-                  Name
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSortBy('credits')}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                    sortBy === 'credits'
-                      ? 'bg-slate-700 text-white font-semibold border border-slate-500'
-                      : 'bg-slate-800/80 text-slate-400 border border-slate-700 hover:text-slate-200'
-                  }`}
-                  title="Sort by Credits High–Low"
-                >
-                  Credits
+                  Next →
                 </button>
               </div>
             </div>
-
-            {/* Dynamic Tool Grid or Empty State */}
-            {(() => {
-              const handleToolClick = (item: ToolBreakdownItem) => {
-                if (item.commentsGenerated > 0 || item.status === 'failed') {
-                  const el = document.getElementById('review-events-section');
-                  if (el) {
-                    el.scrollIntoView({ behavior: 'smooth' });
-                  }
-                }
-              };
-
-              if (sortedTools.length === 0) {
-                return (
-                  <div className="py-6 px-4 text-center rounded-lg bg-slate-800/40 border border-slate-700/50 my-1">
-                    <p className="text-slate-300 text-xs font-medium">
-                      No tools matching filter "{statusFilter}".
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setStatusFilter('all')}
-                      className="mt-2 text-indigo-400 hover:text-indigo-300 text-xs font-semibold underline cursor-pointer"
-                    >
-                      Show all tools ({totalTools})
-                    </button>
-                  </div>
-                );
-              }
-
-              return (
-                <>
-                  <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
-                    {pagedTools.map((item) => {
-                      const isToolRunning = item.status === 'running';
-                      const isToolPending = item.status === 'pending';
-                      const isToolFailed = item.status === 'failed';
-                      const isToolPartial = item.status === 'partial';
-                      const hasToolFindings = item.commentsGenerated > 0;
-                      const isClean =
-                        item.commentsGenerated === 0 &&
-                        !isToolFailed &&
-                        !isToolRunning &&
-                        !isToolPending &&
-                        !isToolPartial;
-                      const isClickable = hasToolFindings || isToolFailed;
-
-                      const formattedCredits = `${(item.creditsUsed ?? 0).toFixed(1)} cr`;
-                      const formattedFindings = hasToolFindings
-                        ? `${item.commentsGenerated} ${item.commentsGenerated === 1 ? 'finding' : 'findings'}`
-                        : null;
-
-                      return (
-                        <motion.div
-                          layout
-                          key={item.toolName}
-                          initial={{ opacity: 0, scale: 0.95 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.95 }}
-                          transition={{ duration: 0.15 }}
-                          onClick={isClickable ? () => handleToolClick(item) : undefined}
-                          title={
-                            isToolPartial
-                              ? `Diff was truncated/capped at limits${formattedFindings ? ` • ${formattedFindings}` : ''}`
-                              : isToolFailed
-                              ? `${item.toolName} failed during execution`
-                              : hasToolFindings
-                              ? `Click to view ${formattedFindings} from ${item.toolName}`
-                              : `${item.toolName} • ${isClean ? 'Clean (0 findings)' : item.status}`
-                          }
-                          className={`rounded-lg p-3 flex items-center justify-between transition-all ${
-                            isToolFailed
-                              ? 'bg-slate-800/90 border border-red-700/60 shadow-md shadow-red-950/20 cursor-pointer hover:border-red-500 hover:scale-[1.01]'
-                              : isToolPartial
-                              ? `bg-slate-800/90 border border-amber-600/60 shadow-md shadow-amber-950/20 ${
-                                  isClickable ? 'cursor-pointer hover:border-amber-500 hover:scale-[1.01]' : ''
-                                }`
-                              : hasToolFindings
-                              ? 'bg-slate-800/90 border border-amber-600/60 shadow-md shadow-amber-950/20 cursor-pointer hover:border-amber-500 hover:scale-[1.01]'
-                              : 'bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50'
-                          }`}
-                        >
-                          <div className="min-w-0 pr-2">
-                            <p
-                              className={`font-mono font-bold text-xs truncate ${
-                                isToolFailed
-                                  ? 'text-red-200'
-                                  : isToolPartial || hasToolFindings
-                                  ? 'text-amber-200'
-                                  : 'text-white'
-                              }`}
-                            >
-                              {item.toolName}
-                            </p>
-                            <div className="flex items-center gap-1.5 mt-0.5 text-slate-400 font-mono text-[11px]">
-                              <span>{formattedCredits}</span>
-                              {formattedFindings && (
-                                <>
-                                  <span className="text-slate-600">•</span>
-                                  <span className="text-amber-400/90 font-medium truncate">
-                                    {formattedFindings}
-                                  </span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Per-Tool State Badge */}
-                          <div className="shrink-0">
-                            {isToolRunning ? (
-                              <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-md bg-blue-950/50 text-blue-300 border border-blue-700/60 animate-pulse">
-                                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Running
-                              </span>
-                            ) : isToolPending ? (
-                              <span className="text-xs font-mono px-2.5 py-1 rounded-md bg-slate-800 text-slate-400 border border-slate-700">
-                                Queued
-                              </span>
-                            ) : isToolFailed ? (
-                              <span className="text-xs font-mono px-2.5 py-1 rounded-md border text-center font-semibold bg-red-950 text-red-300 border-red-800/80">
-                                Failed
-                              </span>
-                            ) : isToolPartial ? (
-                              <span
-                                className="text-xs font-mono px-2.5 py-1 rounded-md border text-center font-semibold flex items-center gap-1 bg-amber-950 text-amber-300 border-amber-700/80 shadow-sm"
-                                title="Diff was truncated/capped at limits"
-                              >
-                                <span>⚠️</span>
-                                <span>Partial</span>
-                              </span>
-                            ) : isClean ? (
-                              <span className="text-xs font-mono px-2.5 py-1 rounded-md border text-center font-normal bg-slate-800/80 text-slate-400 border-slate-700">
-                                Clean
-                              </span>
-                            ) : (
-                              <span className="text-xs font-mono px-2.5 py-1 rounded-md border text-center font-semibold flex items-center gap-1 bg-amber-950 text-amber-300 border-amber-700/80 shadow-sm hover:bg-amber-900">
-                                ⚠️ {formattedFindings}
-                              </span>
-                            )}
-                          </div>
-                        </motion.div>
-                      );
-                    })}
-                  </motion.div>
-
-                  {/* Pagination controls */}
-                  {totalPages > 1 && (
-                    <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-700/40">
-                      <button
-                        type="button"
-                        onClick={() => setPage((p) => Math.max(0, p - 1))}
-                        disabled={safePage === 0}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium border border-slate-700 bg-slate-800/60 text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                      >
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                        </svg>
-                        Prev
-                      </button>
-                      <span className="text-[11px] text-slate-500 font-mono">
-                        {safePage + 1} / {totalPages}
-                        <span className="text-slate-700 ml-1">({sortedTools.length} tools)</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                        disabled={safePage >= totalPages - 1}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium border border-slate-700 bg-slate-800/60 text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                      >
-                        Next
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </button>
-                    </div>
-                  )}
-                </>
-              );
-            })()}
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </div>
+      )}
     </div>
   );
 };
