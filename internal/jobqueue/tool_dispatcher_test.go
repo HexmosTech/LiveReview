@@ -54,7 +54,7 @@ func (s *mockDBState) getAvailableToolRows() [][]driver.Value {
 	if s.toolsCatalog != nil {
 		rows := make([][]driver.Value, len(s.toolsCatalog))
 		for i, t := range s.toolsCatalog {
-			rows[i] = []driver.Value{t.ID, t.Name, t.Description, t.LambdaARN, t.Multiplier, t.UseCase, t.Category}
+			rows[i] = []driver.Value{t.ID, t.Name, t.Description, t.LambdaARN, t.Multiplier, t.UseCase, t.Category, t.DocsURL}
 		}
 		return rows
 	}
@@ -80,6 +80,7 @@ func (s *mockDBState) getAvailableToolRows() [][]driver.Value {
 			tt.mult,
 			"test",
 			"test",
+			"",
 		}
 	}
 	return rows
@@ -173,7 +174,7 @@ func (c *mockDBConn) QueryContext(ctx context.Context, query string, args []driv
 	// 1b. available_tools (LoadCatalog Tier 2)
 	if strings.Contains(query, "available_tools") {
 		return &mockRows{
-			columns: []string{"id", "name", "description", "lambda_arn", "multiplier", "use_case", "category"},
+			columns: []string{"id", "name", "description", "lambda_arn", "multiplier", "use_case", "category", "docs_url"},
 			rows:    state.getAvailableToolRows(),
 		}, nil
 	}

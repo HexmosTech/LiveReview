@@ -17,6 +17,7 @@ type AvailableTool struct {
 	Multiplier  float64 `json:"multiplier"`
 	UseCase     string  `json:"use_case"`
 	Category    string  `json:"category"`
+	DocsURL     string  `json:"docs_url"`
 }
 
 type OrgToolView struct {
@@ -64,13 +65,13 @@ func (s *ToolsStore) LoadCatalog(ctx context.Context) ([]AvailableTool, error) {
 	}
 
 	// --- Tier 2: available_tools table (populated by lr-tools deployer) ---
-	rows, dbErr := s.db.QueryContext(ctx, "SELECT id, name, description, lambda_arn, multiplier, COALESCE(use_case, ''), COALESCE(category, '') FROM public.available_tools ORDER BY id")
+	rows, dbErr := s.db.QueryContext(ctx, "SELECT id, name, description, lambda_arn, multiplier, COALESCE(use_case, ''), COALESCE(category, ''), COALESCE(docs_url, '') FROM public.available_tools ORDER BY id")
 	if dbErr == nil {
 		defer rows.Close()
 		var dbTools []AvailableTool
 		for rows.Next() {
 			var t AvailableTool
-			if scanErr := rows.Scan(&t.ID, &t.Name, &t.Description, &t.LambdaARN, &t.Multiplier, &t.UseCase, &t.Category); scanErr == nil {
+			if scanErr := rows.Scan(&t.ID, &t.Name, &t.Description, &t.LambdaARN, &t.Multiplier, &t.UseCase, &t.Category, &t.DocsURL); scanErr == nil {
 				dbTools = append(dbTools, t)
 			}
 		}

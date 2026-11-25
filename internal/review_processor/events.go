@@ -604,41 +604,109 @@ type ToolSummary struct {
 	ToolBreakdown          []ToolBreakdownItem `json:"toolBreakdown"`
 }
 
-// GetSeverityCounts queries public.ai_comments (and review_events fallback) to count High, Medium, and Low severity issues
-func (r *ReviewEventsRepo) GetSeverityCounts(ctx context.Context, reviewID, orgID int64) (SeverityCounts, error) {
+func addSeverityCount(counts *SeverityCounts, raw string, delta int) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "critical", "high", "error":
+		counts.High += delta
+	case "warning", "medium", "warn":
+		counts.Medium += delta
+	case "info", "low":
+		counts.Low += delta
+	}
+}
+
+func accumulateSeverityRows(rows *sql.Rows) (SeverityCounts, bool, error) {
 	var counts SeverityCounts
-	query := `
-		SELECT COALESCE(content->>'severity', 'warning') as sev, COUNT(*)
+	if rows == nil {
+		return counts, false, nil
+	}
+	defer rows.Close()
+	hasRows := false
+	for rows.Next() {
+		var sev string
+		var cnt int
+		if err := rows.Scan(&sev, &cnt); err != nil {
+			return SeverityCounts{}, false, err
+		}
+		hasRows = true
+		addSeverityCount(&counts, sev, cnt)
+	}
+	if err := rows.Err(); err != nil {
+		return SeverityCounts{}, false, err
+	}
+	return counts, hasRows, nil
+}
+
+// GetSeverityCounts counts High, Medium, and Low severity issues from
+// review_result.comments first, then ai_comments, completed batch events, and
+// finally individual severity/error/warn events.
+func (r *ReviewEventsRepo) GetSeverityCounts(ctx context.Context, reviewID, orgID int64) (SeverityCounts, error) {
+	const queryReviewResult = `
+		SELECT COALESCE(NULLIF(c->>'severity', ''), NULLIF(c->>'Severity', ''), 'warning') AS sev, COUNT(*)
+		FROM public.reviews r
+		CROSS JOIN LATERAL jsonb_array_elements(
+			CASE
+				WHEN jsonb_typeof(r.metadata->'review_result'->'comments') = 'array'
+				THEN r.metadata->'review_result'->'comments'
+				ELSE '[]'::jsonb
+			END
+		) AS c
+		WHERE r.id = $1 AND r.org_id = $2
+		GROUP BY COALESCE(NULLIF(c->>'severity', ''), NULLIF(c->>'Severity', ''), 'warning')
+	`
+	const queryAIComments = `
+		SELECT COALESCE(NULLIF(content->>'severity', ''), NULLIF(content->>'Severity', ''), 'warning') AS sev, COUNT(*)
 		FROM public.ai_comments
 		WHERE review_id = $1 AND org_id = $2
-		GROUP BY COALESCE(content->>'severity', 'warning')
+		GROUP BY COALESCE(NULLIF(content->>'severity', ''), NULLIF(content->>'Severity', ''), 'warning')
 	`
-	rows, err := r.db.QueryContext(ctx, query, reviewID, orgID)
-	if err == nil {
-		defer rows.Close()
-		hasComments := false
-		for rows.Next() {
-			hasComments = true
-			var sev string
-			var cnt int
-			if err := rows.Scan(&sev, &cnt); err == nil {
-				switch strings.ToLower(strings.TrimSpace(sev)) {
-				case "critical", "high", "error":
-					counts.High += cnt
-				case "warning", "medium", "warn":
-					counts.Medium += cnt
-				case "info", "low":
-					counts.Low += cnt
-				}
+	const queryBatchEvents = `
+		SELECT COALESCE(NULLIF(c->>'severity', ''), NULLIF(c->>'Severity', ''), 'warning') AS sev, COUNT(*)
+		FROM public.review_events e
+		CROSS JOIN LATERAL jsonb_array_elements(
+			CASE
+				WHEN jsonb_typeof(e.data->'comments') = 'array'
+				THEN e.data->'comments'
+				ELSE '[]'::jsonb
+			END
+		) AS c
+		WHERE e.review_id = $1
+		  AND e.org_id = $2
+		  AND e.event_type = 'batch'
+		  AND (e.data->>'status' = 'completed' OR e.data->>'status' IS NULL)
+		GROUP BY COALESCE(NULLIF(c->>'severity', ''), NULLIF(c->>'Severity', ''), 'warning')
+	`
+
+	sources := []struct {
+		name  string
+		query string
+	}{
+		{name: "review_result comments", query: queryReviewResult},
+		{name: "ai_comments", query: queryAIComments},
+		{name: "batch events", query: queryBatchEvents},
+	}
+
+	for _, src := range sources {
+		rows, err := r.db.QueryContext(ctx, src.query, reviewID, orgID)
+		if err != nil {
+			if ctx.Err() != nil {
+				return SeverityCounts{}, fmt.Errorf("severity counts query aborted (%s): %w", src.name, err)
 			}
+			log.Printf("[WARN] Failed to query %s for severity counts (review_id=%d, org_id=%d): %v", src.name, reviewID, orgID, err)
+			continue
 		}
-		if hasComments {
+		counts, hasRows, scanErr := accumulateSeverityRows(rows)
+		if scanErr != nil {
+			log.Printf("[WARN] Failed to scan %s for severity counts (review_id=%d, org_id=%d): %v", src.name, reviewID, orgID, scanErr)
+			continue
+		}
+		if hasRows {
 			return counts, nil
 		}
 	}
 
-	queryEvents := `
-		SELECT COALESCE(data->>'severity', level) as sev, COUNT(*)
+	const queryEvents = `
+		SELECT COALESCE(data->>'severity', level) AS sev, COUNT(*)
 		FROM public.review_events
 		WHERE review_id = $1 AND org_id = $2 AND (data->>'severity' IS NOT NULL OR level IN ('error', 'warn'))
 		GROUP BY COALESCE(data->>'severity', level)
@@ -646,23 +714,11 @@ func (r *ReviewEventsRepo) GetSeverityCounts(ctx context.Context, reviewID, orgI
 	eventRows, eventErr := r.db.QueryContext(ctx, queryEvents, reviewID, orgID)
 	if eventErr != nil {
 		log.Printf("[WARN] Failed to query review_events for severity counts (review_id=%d, org_id=%d): %v", reviewID, orgID, eventErr)
-		return counts, fmt.Errorf("failed to query review_events for severity counts: %w", eventErr)
+		return SeverityCounts{}, fmt.Errorf("failed to query review_events for severity counts: %w", eventErr)
 	}
-	defer eventRows.Close()
-
-	for eventRows.Next() {
-		var sev string
-		var cnt int
-		if err := eventRows.Scan(&sev, &cnt); err == nil {
-			switch strings.ToLower(strings.TrimSpace(sev)) {
-			case "critical", "high", "error":
-				counts.High += cnt
-			case "warning", "medium", "warn":
-				counts.Medium += cnt
-			case "info", "low":
-				counts.Low += cnt
-			}
-		}
+	counts, _, scanErr := accumulateSeverityRows(eventRows)
+	if scanErr != nil {
+		return SeverityCounts{}, fmt.Errorf("failed to scan review_events severity counts: %w", scanErr)
 	}
 	return counts, nil
 }

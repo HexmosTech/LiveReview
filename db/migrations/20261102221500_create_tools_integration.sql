@@ -114,8 +114,12 @@ CREATE TABLE IF NOT EXISTS public.available_tools (
     multiplier NUMERIC(6,2) DEFAULT 1.0 NOT NULL,
     use_case TEXT DEFAULT '' NOT NULL,
     category TEXT DEFAULT '' NOT NULL,
+    docs_url TEXT DEFAULT '' NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
+
+ALTER TABLE public.available_tools
+    ADD COLUMN IF NOT EXISTS docs_url TEXT DEFAULT '' NOT NULL;
 
 -- migrate:down
 

@@ -1,5 +1,93 @@
-import { ReviewAccounting, ReviewAccountingStage, ReviewEvent, ToolSummary } from '../../types/reviews';
+import {
+    ReviewAccounting,
+    ReviewAccountingStage,
+    ReviewEvent,
+    ReviewSummary,
+    SeverityCounts,
+    ToolSummary,
+} from '../../types/reviews';
 import { ToolAccountingData, ToolBreakdownItem } from '../../components/reviews/ToolAnalysisCard';
+
+const classifyCommentSeverity = (rawSeverity: unknown, counts: SeverityCounts): void => {
+    const sev = typeof rawSeverity === 'string' ? rawSeverity.trim().toLowerCase() : '';
+    switch (sev) {
+        case 'critical':
+        case 'high':
+        case 'error':
+            counts.high++;
+            break;
+        case 'warning':
+        case 'medium':
+        case 'warn':
+        case '':
+            counts.medium++;
+            break;
+        case 'info':
+        case 'low':
+            counts.low++;
+            break;
+    }
+};
+
+/**
+ * Resolves severity counts from backend summary first when non-zero, then
+ * falls back to persisted `review.metadata.review_result.comments`, completed
+ * `batch` events' `comments`, and finally individual severity/warn/error events.
+ */
+export function deriveSeverityCounts(
+    summary: Pick<ReviewSummary, 'severityCounts'> | null | undefined,
+    review: { metadata?: Record<string, any> | null } | null | undefined,
+    events: ReviewEvent[]
+): SeverityCounts {
+    const summaryCounts = summary?.severityCounts;
+    if (summaryCounts && (summaryCounts.high + summaryCounts.medium + summaryCounts.low) > 0) {
+        return summaryCounts;
+    }
+
+    const metaComments = review?.metadata?.review_result?.comments;
+    if (Array.isArray(metaComments) && metaComments.length > 0) {
+        const counts: SeverityCounts = { high: 0, medium: 0, low: 0 };
+        for (const comment of metaComments) {
+            if (comment && typeof comment === 'object') {
+                classifyCommentSeverity(comment.severity ?? comment.Severity, counts);
+            }
+        }
+        return counts;
+    }
+
+    const batchCounts: SeverityCounts = { high: 0, medium: 0, low: 0 };
+    let hasBatchComments = false;
+    for (const e of events) {
+        if (String(e.type) !== 'batch') continue;
+        const dataAny = e.data as Record<string, any> | undefined;
+        if (dataAny?.status && dataAny.status !== 'completed') continue;
+        if (Array.isArray(dataAny?.comments) && dataAny.comments.length > 0) {
+            hasBatchComments = true;
+            for (const comment of dataAny.comments) {
+                if (comment && typeof comment === 'object') {
+                    classifyCommentSeverity(comment.severity ?? comment.Severity, batchCounts);
+                }
+            }
+        }
+    }
+    if (hasBatchComments) {
+        return batchCounts;
+    }
+
+    const eventCounts: SeverityCounts = { high: 0, medium: 0, low: 0 };
+    for (const e of events) {
+        const dataAny = e.data as Record<string, any> | undefined;
+        const sev = typeof dataAny?.severity === 'string' ? dataAny.severity.trim().toLowerCase() : '';
+        if (e.level === 'error' || sev === 'critical' || sev === 'high' || sev === 'error') {
+            eventCounts.high++;
+        } else if (e.level === 'warn' || sev === 'warning' || sev === 'medium' || sev === 'warn') {
+            eventCounts.medium++;
+        } else if (sev === 'info' || sev === 'low') {
+            eventCounts.low++;
+        }
+    }
+    return eventCounts;
+}
 
 export const ACCOUNTING_REFRESH_INTERVAL_MS = 15000;
 export const ACTIVE_POLL_INTERVAL_MS = 3000;

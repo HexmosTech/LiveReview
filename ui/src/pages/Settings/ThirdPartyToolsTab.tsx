@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import apiClient from '../../api/apiClient';
 import { Badge, Alert } from '../../components/UIPrimitives';
+import { isSafeExternalUrl } from '../Reviews/reviewDetailHelpers';
 
 export interface Tool {
 	id: number;
@@ -11,6 +12,7 @@ export interface Tool {
 	multiplier: number;
 	use_case: string;
 	category?: string;
+	docs_url?: string;
 	enabled: boolean;
 }
 
@@ -22,6 +24,113 @@ const DEFAULT_TOOL_CREDITS_LIMIT = 50000;
 
 const formatCompactNumber = (num: number): string => {
 	return num.toLocaleString(undefined, { notation: 'compact', maximumFractionDigits: 1 });
+};
+
+interface ToolInfoPopoverProps {
+	tool: Tool;
+	openUpward: boolean;
+	isHovered: boolean;
+	isPinned: boolean;
+	onHoverStart: () => void;
+	onHoverEnd: () => void;
+	onTogglePin: () => void;
+}
+
+const ToolInfoPopover: React.FC<ToolInfoPopoverProps> = ({
+	tool,
+	openUpward,
+	isHovered,
+	isPinned,
+	onHoverStart,
+	onHoverEnd,
+	onTogglePin,
+}) => {
+	const isOpen = isHovered || isPinned;
+	const hasSafeDocsUrl = isSafeExternalUrl(tool.docs_url);
+	const popoverId = `tool-info-popover-${tool.id}`;
+
+	return (
+		<div
+			className="relative inline-flex items-center"
+			data-tool-info-root="true"
+			onMouseEnter={onHoverStart}
+			onMouseLeave={onHoverEnd}
+		>
+			<button
+				type="button"
+				aria-label={`Inspect ${tool.name} details`}
+				aria-expanded={isOpen}
+				aria-controls={popoverId}
+				onClick={(e) => {
+					e.stopPropagation();
+					onTogglePin();
+				}}
+				onFocus={onHoverStart}
+				onBlur={(e) => {
+					const related = e.relatedTarget as Node | null;
+					if (!e.currentTarget.parentElement?.contains(related)) {
+						onHoverEnd();
+					}
+				}}
+				className={`inline-flex h-5 w-5 items-center justify-center rounded-full border text-[11px] font-semibold transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+					isOpen
+						? 'bg-violet-500/20 text-violet-200 border-violet-400/60'
+						: 'bg-slate-800/70 text-slate-400 border-slate-700/80 hover:text-white hover:border-slate-500 group-hover/row:border-slate-500 group-hover/row:text-slate-200'
+				}`}
+				title={`About ${tool.name}`}
+			>
+				i
+			</button>
+
+			{isOpen && (
+				<div
+					id={popoverId}
+					role="dialog"
+					aria-label={`${tool.name} information`}
+					className={`absolute left-0 z-30 w-80 sm:w-96 rounded-xl border border-slate-700 bg-slate-900/95 p-4 shadow-2xl backdrop-blur-md text-left ${
+						openUpward ? 'bottom-full mb-2' : 'top-full mt-2'
+					}`}
+				>
+					<div className="flex flex-wrap items-center gap-2">
+						<span className="font-mono text-sm font-semibold text-white">
+							{tool.name}
+						</span>
+						{tool.category && (
+							<span className="rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-300">
+								{tool.category}
+							</span>
+						)}
+					</div>
+					<p className="mt-0.5 text-[11px] text-slate-400">
+						{tool.use_case || 'General Analysis'}
+					</p>
+
+					<p className="mt-2.5 text-xs leading-relaxed text-slate-300">
+						{tool.description || 'Static analysis tool configured in catalog.'}
+					</p>
+
+					{hasSafeDocsUrl && (
+						<div className="mt-3 flex items-center justify-end border-t border-slate-800 pt-2.5 text-[11px]">
+							<a
+								href={tool.docs_url}
+								target="_blank"
+								rel="noopener noreferrer"
+								className="inline-flex items-center gap-1.5 font-medium text-violet-400 hover:text-violet-300 hover:underline"
+							>
+								<svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+									<path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+								</svg>
+								<span>Official GitHub repository</span>
+								<svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+									<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+								</svg>
+							</a>
+						</div>
+					)}
+				</div>
+			)}
+		</div>
+	);
 };
 
 const ThirdPartyToolsTab: React.FC = () => {
@@ -39,7 +148,53 @@ const ThirdPartyToolsTab: React.FC = () => {
 	const [sortField, setSortField] = useState<'name' | 'use_case' | 'category' | 'multiplier' | 'enabled'>('name');
 	const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 	const [currentPage, setCurrentPage] = useState(1);
+	const [hoveredInfoId, setHoveredInfoId] = useState<number | null>(null);
+	const [pinnedInfoId, setPinnedInfoId] = useState<number | null>(null);
+	const closeHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const pageSize = 10;
+
+	const clearHoverTimer = () => {
+		if (closeHoverTimerRef.current) {
+			clearTimeout(closeHoverTimerRef.current);
+			closeHoverTimerRef.current = null;
+		}
+	};
+
+	const openInfoOnHover = (toolId: number) => {
+		clearHoverTimer();
+		setHoveredInfoId(toolId);
+	};
+
+	const closeInfoOnLeave = (toolId: number) => {
+		clearHoverTimer();
+		closeHoverTimerRef.current = setTimeout(() => {
+			setHoveredInfoId(prev => (prev === toolId ? null : prev));
+		}, 150);
+	};
+
+	useEffect(() => {
+		const handleDocMouseDown = (event: MouseEvent) => {
+			const target = event.target as HTMLElement | null;
+			if (target && target.closest('[data-tool-info-root="true"]')) {
+				return;
+			}
+			setPinnedInfoId(null);
+			setHoveredInfoId(null);
+		};
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') {
+				setPinnedInfoId(null);
+				setHoveredInfoId(null);
+			}
+		};
+		document.addEventListener('mousedown', handleDocMouseDown);
+		document.addEventListener('keydown', handleKeyDown);
+		return () => {
+			clearHoverTimer();
+			document.removeEventListener('mousedown', handleDocMouseDown);
+			document.removeEventListener('keydown', handleKeyDown);
+		};
+	}, []);
 
 	const handleSort = (field: 'name' | 'use_case' | 'category' | 'multiplier' | 'enabled') => {
 		if (sortField === field) {
@@ -370,13 +525,13 @@ const ThirdPartyToolsTab: React.FC = () => {
 					<p className="text-sm text-slate-400">Tools are not available at the moment.</p>
 				</div>
 			) : (
-				<div className="overflow-hidden border border-slate-700 rounded-xl bg-slate-900/40">
+				<div className="overflow-visible border border-slate-700 rounded-xl bg-slate-900/40">
 					<table className="w-full text-left border-collapse">
 						<thead>
 							<tr className="border-b border-slate-700 bg-slate-800/50 select-none">
 								<th 
 									onClick={() => handleSort('name')}
-									className="p-4 text-xs font-semibold uppercase tracking-wider text-slate-400 cursor-pointer hover:bg-slate-800/80 hover:text-white transition-colors duration-200 group"
+									className="first:rounded-tl-xl p-4 text-xs font-semibold uppercase tracking-wider text-slate-400 cursor-pointer hover:bg-slate-800/80 hover:text-white transition-colors duration-200 group"
 								>
 									<div className="flex items-center">
 										Tool {renderSortIcon('name')}
@@ -408,7 +563,7 @@ const ThirdPartyToolsTab: React.FC = () => {
 								</th>
 								<th 
 									onClick={() => handleSort('enabled')}
-									className="p-4 text-xs font-semibold uppercase tracking-wider text-slate-400 cursor-pointer hover:bg-slate-800/80 hover:text-white transition-colors duration-200 group text-right"
+									className="last:rounded-tr-xl p-4 text-xs font-semibold uppercase tracking-wider text-slate-400 cursor-pointer hover:bg-slate-800/80 hover:text-white transition-colors duration-200 group text-right"
 								>
 									<div className="flex items-center justify-end">
 										Status {renderSortIcon('enabled')}
@@ -417,15 +572,36 @@ const ThirdPartyToolsTab: React.FC = () => {
 							</tr>
 						</thead>
 						<tbody className="divide-y divide-slate-800">
-							{paginatedTools.map((tool) => {
+							{paginatedTools.map((tool, index) => {
+								const isInfoOpen = hoveredInfoId === tool.id || pinnedInfoId === tool.id;
+								const openUpward = paginatedTools.length > 3 && index >= paginatedTools.length - 3;
 								return (
-									<tr key={tool.id} className="hover:bg-slate-800/30 transition-colors">
+									<tr
+										key={tool.id}
+										className={`group/row transition-colors duration-150 ${
+											isInfoOpen
+												? 'bg-slate-800/55'
+												: 'hover:bg-slate-800/50'
+										}`}
+									>
 										<td className="p-4">
-											<div className="font-medium text-white text-sm">{tool.name}</div>
-											<div className="text-xs text-slate-400 mt-1 max-w-md">{tool.description}</div>
+											<div className="flex items-center gap-2">
+												<span className="font-medium text-white text-sm group-hover/row:text-violet-100 transition-colors">
+													{tool.name}
+												</span>
+												<ToolInfoPopover
+													tool={tool}
+													openUpward={openUpward}
+													isHovered={hoveredInfoId === tool.id}
+													isPinned={pinnedInfoId === tool.id}
+													onHoverStart={() => openInfoOnHover(tool.id)}
+													onHoverEnd={() => closeInfoOnLeave(tool.id)}
+													onTogglePin={() => setPinnedInfoId(prev => (prev === tool.id ? null : tool.id))}
+												/>
+											</div>
 										</td>
 										<td className="p-4 text-sm text-slate-300">
-											{tool.use_case || 'General'}
+											{tool.use_case || 'General Analysis'}
 										</td>
 										<td className="p-4 text-sm text-slate-300">
 											{tool.category ? (
@@ -436,13 +612,15 @@ const ThirdPartyToolsTab: React.FC = () => {
 												<span className="text-slate-500">—</span>
 											)}
 										</td>
-										<td className="p-4 text-sm font-semibold text-slate-300">
+										<td className="p-4 text-sm font-semibold text-slate-300 tabular-nums">
 											{tool.multiplier.toFixed(1)}×
 										</td>
 										<td className="p-4 text-right">
 											{isOwner ? (
 												<div className="inline-flex items-center space-x-2">
 													<button
+														type="button"
+														aria-label={`Toggle ${tool.name}`}
 														onClick={() => handleToggleTool(tool)}
 														disabled={saving}
 														className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
@@ -470,7 +648,7 @@ const ThirdPartyToolsTab: React.FC = () => {
 
 					{/* Pagination Footer */}
 					{totalPages > 1 && (
-						<div className="flex items-center justify-between border-t border-slate-700 bg-slate-900/60 px-4 py-3 sm:px-6">
+						<div className="flex items-center justify-between rounded-b-xl border-t border-slate-700 bg-slate-900/60 px-4 py-3 sm:px-6">
 							<div className="flex flex-1 justify-between sm:hidden">
 								<button
 									onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}

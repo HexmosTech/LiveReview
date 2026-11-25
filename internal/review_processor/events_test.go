@@ -501,3 +501,124 @@ func TestComputeToolSummary(t *testing.T) {
 		assert.Equal(t, "running", statusMap["db_tool7"], "E7 DB: Dispatched > 10s ago must be running")
 	})
 }
+
+func TestAddSeverityCount(t *testing.T) {
+	var counts SeverityCounts
+	addSeverityCount(&counts, "critical", 2)
+	addSeverityCount(&counts, " HIGH ", 1)
+	addSeverityCount(&counts, "error", 3)
+	addSeverityCount(&counts, "warning", 4)
+	addSeverityCount(&counts, "Medium", 2)
+	addSeverityCount(&counts, "warn", 1)
+	addSeverityCount(&counts, "info", 5)
+	addSeverityCount(&counts, "LOW", 2)
+	addSeverityCount(&counts, "unknown", 9)
+
+	assert.Equal(t, 6, counts.High)
+	assert.Equal(t, 7, counts.Medium)
+	assert.Equal(t, 7, counts.Low)
+}
+
+func TestGetSeverityCounts_DB(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping DB integration test in short mode")
+	}
+
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		dbURL = testDatabaseURL()
+	}
+
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		t.Skipf("Skipping DB test: unable to open postgres connection: %v", err)
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
+		t.Skipf("Skipping DB test: database not pingable: %v", err)
+	}
+
+	repo := NewReviewEventsRepo(db)
+	orgID := int64(1)
+
+	t.Run("ReadsFromReviewResultMetadataAndRespectsOrgScope", func(t *testing.T) {
+		metaBytes, mErr := json.Marshal(map[string]interface{}{
+			"review_result": map[string]interface{}{
+				"comments": []map[string]interface{}{
+					{"file_path": "a.go", "line": 1, "severity": "critical"},
+					{"file_path": "a.go", "line": 2, "Severity": "high"},
+					{"file_path": "a.go", "line": 3, "severity": "warning"},
+					{"file_path": "a.go", "line": 4, "severity": ""},
+					{"file_path": "a.go", "line": 5, "severity": "info"},
+				},
+			},
+		})
+		require.NoError(t, mErr)
+
+		var reviewID int64
+		err := db.QueryRowContext(ctx, `
+			INSERT INTO public.reviews (repository, branch, commit_hash, pr_mr_url, status, trigger_type, user_email, provider, metadata, org_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			RETURNING id
+		`, "test/severity-meta-repo", "main", "abc12345", "https://test.com/pr/sev-meta", "completed", "manual", "test@example.com", "test", metaBytes, orgID).Scan(&reviewID)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			_, _ = db.ExecContext(context.Background(), "DELETE FROM public.reviews WHERE id = $1", reviewID)
+		})
+
+		counts, err := repo.GetSeverityCounts(ctx, reviewID, orgID)
+		require.NoError(t, err)
+		assert.Equal(t, SeverityCounts{High: 2, Medium: 2, Low: 1}, counts)
+
+		otherOrgCounts, err := repo.GetSeverityCounts(ctx, reviewID, orgID+999999)
+		require.NoError(t, err)
+		assert.Equal(t, SeverityCounts{}, otherOrgCounts)
+	})
+
+	t.Run("FallsBackToCompletedBatchCommentsWhenMetadataAbsent", func(t *testing.T) {
+		var reviewID int64
+		err := db.QueryRowContext(ctx, `
+			INSERT INTO public.reviews (repository, branch, commit_hash, pr_mr_url, status, trigger_type, user_email, provider, metadata, org_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '{}'::jsonb, $9)
+			RETURNING id
+		`, "test/severity-batch-repo", "main", "abc12345", "https://test.com/pr/sev-batch", "in_progress", "manual", "test@example.com", "test", orgID).Scan(&reviewID)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			_, _ = db.ExecContext(context.Background(), "DELETE FROM public.review_events WHERE review_id = $1", reviewID)
+			_, _ = db.ExecContext(context.Background(), "DELETE FROM public.reviews WHERE id = $1", reviewID)
+		})
+
+		insertBatch := func(status string, comments interface{}) {
+			b, mErr := json.Marshal(map[string]interface{}{
+				"status":   status,
+				"comments": comments,
+			})
+			require.NoError(t, mErr)
+			_, iErr := db.ExecContext(ctx, `
+				INSERT INTO public.review_events (review_id, org_id, ts, event_type, level, data)
+				VALUES ($1, $2, $3, 'batch', 'info', $4)
+			`, reviewID, orgID, time.Now(), b)
+			require.NoError(t, iErr)
+		}
+
+		insertBatch("processing", []map[string]interface{}{
+			{"severity": "critical"},
+		})
+		insertBatch("completed", []map[string]interface{}{
+			{"severity": "critical"},
+			{"Severity": "warning"},
+			{"severity": "info"},
+			{"severity": "info"},
+		})
+
+		counts, err := repo.GetSeverityCounts(ctx, reviewID, orgID)
+		require.NoError(t, err)
+		assert.Equal(t, SeverityCounts{High: 1, Medium: 1, Low: 2}, counts)
+	})
+}

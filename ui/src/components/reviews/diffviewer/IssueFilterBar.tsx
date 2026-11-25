@@ -19,16 +19,31 @@ import { Button } from '../../UIPrimitives';
 import { CategoryGroup, FacetOption, FilterFacets, hasActiveIssueFilters, IssueFilters } from './issueFilters';
 import VoteButtons from './VoteButtons';
 
+const CHIP_FOCUS_CLASS =
+  'focus:outline-none focus-visible:ring-1 focus-visible:ring-slate-400/50';
+const CHIP_BASE_CLASS =
+  `inline-flex min-h-[32px] items-center gap-2 rounded-md border px-2.5 text-xs font-semibold transition-colors cursor-pointer ${CHIP_FOCUS_CLASS}`;
+const CHIP_ACTIVE_CLASS =
+  'border-blue-400/50 bg-blue-500/[0.16] text-blue-200 hover:bg-blue-500/20 hover:border-blue-400/60';
+const CHIP_PARTIAL_CLASS =
+  'border-blue-500/40 bg-blue-500/[0.10] text-blue-200/90 hover:bg-blue-500/[0.14]';
+const CHIP_SUB_ACTIVE_CLASS =
+  'border-blue-400/45 bg-blue-500/[0.15] text-blue-200 hover:bg-blue-500/20';
+const CHIP_INACTIVE_CLASS =
+  'border-slate-700/70 bg-slate-900/50 text-slate-400 hover:border-slate-600 hover:bg-slate-800/60 hover:text-slate-200';
+const CHIP_PILL_ACTIVE_CLASS = 'bg-white/10 text-current';
+const CHIP_PILL_INACTIVE_CLASS = 'bg-slate-800/80 text-slate-400';
+
 const SEVERITY_ACTIVE_CLASSES: Record<string, string> = {
-  critical: 'border-red-500/50 bg-red-500/[0.14] text-[#fecaca]',
-  warning: 'border-amber-500/50 bg-amber-500/[0.14] text-[#fef08a]',
-  info: 'border-sky-500/50 bg-sky-500/[0.14] text-[#93c5fd]',
+  critical: 'border-red-400/50 bg-red-500/[0.15] text-red-200 hover:bg-red-500/20',
+  warning: 'border-amber-400/50 bg-amber-500/[0.15] text-amber-200 hover:bg-amber-500/20',
+  info: 'border-sky-400/50 bg-sky-500/[0.15] text-sky-200 hover:bg-sky-500/20',
 };
 
 const SEVERITY_INACTIVE_CLASSES: Record<string, string> = {
-  critical: 'border-red-500/30 bg-red-500/[0.06] text-red-300/85 hover:bg-red-500/[0.12] hover:border-red-500/50',
-  warning: 'border-amber-500/30 bg-amber-500/[0.06] text-amber-300/85 hover:bg-amber-500/[0.12] hover:border-amber-500/50',
-  info: 'border-sky-500/30 bg-sky-500/[0.06] text-sky-300/85 hover:bg-sky-500/[0.12] hover:border-sky-500/50',
+  critical: CHIP_INACTIVE_CLASS,
+  warning: CHIP_INACTIVE_CLASS,
+  info: CHIP_INACTIVE_CLASS,
 };
 
 const FilterIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
@@ -50,14 +65,21 @@ const Chip: React.FC<{ option: FacetOption; onClick: () => void; severityClass?:
     aria-pressed={option.active}
     title={`Toggle ${option.label}`}
     className={classNames(
-      'inline-flex min-h-[32px] items-center gap-2 rounded-md border px-2.5 text-xs font-semibold transition-colors cursor-pointer',
+      CHIP_BASE_CLASS,
       option.active
-        ? severityClass || 'border-blue-500/40 bg-blue-500/20 text-[#eef6ff]'
-        : severityClass || 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.3)] text-slate-300 hover:bg-[rgba(84,94,106,0.36)] hover:border-[rgba(132,141,153,0.36)] hover:text-white'
+        ? severityClass || CHIP_ACTIVE_CLASS
+        : severityClass || CHIP_INACTIVE_CLASS
     )}
   >
     <span className="max-w-[240px] truncate">{option.label}</span>
-    <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-white/10 px-1.5 text-[11px] font-bold">{option.count}</span>
+    <span
+      className={classNames(
+        'inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[11px] font-bold',
+        option.active ? CHIP_PILL_ACTIVE_CLASS : CHIP_PILL_INACTIVE_CLASS
+      )}
+    >
+      {option.count}
+    </span>
   </button>
 );
 
@@ -135,14 +157,18 @@ const SourceSection: React.FC<{
               aria-pressed={aiOption.active}
               title={aiOption.active ? 'Disable AI Review comments' : 'Enable AI Review comments'}
               className={classNames(
-                'inline-flex min-h-[34px] items-center gap-2 rounded-md border px-3 text-[13px] font-bold transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400',
-                aiOption.active
-                  ? 'border-blue-500/50 bg-blue-500/20 text-[#eef6ff]'
-                  : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.3)] text-slate-300 hover:bg-[rgba(84,94,106,0.36)] hover:text-white'
+                'inline-flex min-h-[34px] items-center gap-2 rounded-md border px-3 text-[13px] font-bold transition-colors cursor-pointer',
+                CHIP_FOCUS_CLASS,
+                aiOption.active ? CHIP_ACTIVE_CLASS : CHIP_INACTIVE_CLASS
               )}
             >
               <span>AI Review</span>
-              <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-white/10 px-1.5 text-[11px] font-bold">
+              <span
+                className={classNames(
+                  'inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[11px] font-bold',
+                  aiOption.active ? CHIP_PILL_ACTIVE_CLASS : CHIP_PILL_INACTIVE_CLASS
+                )}
+              >
                 {aiOption.count}
               </span>
             </button>
@@ -159,16 +185,22 @@ const SourceSection: React.FC<{
                 aria-pressed={isAllStaticActive}
                 title={isAllStaticActive ? 'Disable all static tools' : 'Enable all static tools'}
                 className={classNames(
-                  'inline-flex min-h-[34px] items-center gap-2 rounded-md border px-3 text-[13px] font-bold transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400',
+                  'inline-flex min-h-[34px] items-center gap-2 rounded-md border px-3 text-[13px] font-bold transition-colors cursor-pointer',
+                  CHIP_FOCUS_CLASS,
                   isAllStaticActive
-                    ? 'border-blue-500/50 bg-blue-500/20 text-[#eef6ff]'
+                    ? CHIP_ACTIVE_CLASS
                     : isAnyStaticActive
-                    ? 'border-blue-600/50 bg-blue-500/10 text-blue-200'
-                    : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.3)] text-slate-300 hover:bg-[rgba(84,94,106,0.36)] hover:text-white'
+                    ? CHIP_PARTIAL_CLASS
+                    : CHIP_INACTIVE_CLASS
                 )}
               >
                 <span>Static Tools</span>
-                <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-white/10 px-1.5 text-[11px] font-bold">
+                <span
+                  className={classNames(
+                    'inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[11px] font-bold',
+                    isAnyStaticActive ? CHIP_PILL_ACTIVE_CLASS : CHIP_PILL_INACTIVE_CLASS
+                  )}
+                >
                   {totalStaticCount}
                 </span>
               </button>
@@ -178,7 +210,7 @@ const SourceSection: React.FC<{
             <div
               className={classNames(
                 'grid gap-2.5 rounded-lg border p-2.5 transition-colors',
-                isAnyStaticActive ? 'border-blue-700/50 bg-slate-900/70' : 'border-slate-700/40 bg-slate-900/40'
+                isAnyStaticActive ? 'border-slate-700/60 bg-slate-900/60' : 'border-slate-800/70 bg-slate-950/35'
               )}
             >
             {/* Directly visible categories with boundary, with tools placed underneath */}
@@ -193,10 +225,10 @@ const SourceSection: React.FC<{
                     className={classNames(
                       'grid gap-2 rounded-lg border p-2.5 transition-colors',
                       isCatAllActive
-                        ? 'border-blue-700/50 bg-slate-900/70'
+                        ? 'border-slate-700/60 bg-slate-900/60'
                         : isCatAnyActive
-                        ? 'border-blue-700/30 bg-slate-900/50'
-                        : 'border-slate-700/40 bg-slate-900/40'
+                        ? 'border-slate-800/80 bg-slate-900/45'
+                        : 'border-slate-800/60 bg-slate-950/30'
                     )}
                   >
                     {/* Tool Category header/toggle */}
@@ -206,16 +238,22 @@ const SourceSection: React.FC<{
                       aria-pressed={isCatAllActive}
                       title={`Toggle all ${catGroup.category} tools`}
                       className={classNames(
-                        'inline-flex w-fit min-h-[30px] items-center gap-2 rounded-md border px-2.5 text-xs font-bold transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400',
+                        'inline-flex w-fit min-h-[30px] items-center gap-2 rounded-md border px-2.5 text-xs font-bold transition-colors cursor-pointer',
+                        CHIP_FOCUS_CLASS,
                         isCatAllActive
-                          ? 'border-blue-500/50 bg-blue-500/20 text-[#eef6ff]'
+                          ? CHIP_ACTIVE_CLASS
                           : isCatAnyActive
-                          ? 'border-blue-600/50 bg-blue-500/10 text-blue-200'
-                          : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.3)] text-slate-300 hover:bg-[rgba(84,94,106,0.36)] hover:text-white'
+                          ? CHIP_PARTIAL_CLASS
+                          : CHIP_INACTIVE_CLASS
                       )}
                     >
                       <span>{catGroup.category}</span>
-                      <span className="inline-flex h-4 min-w-[18px] items-center justify-center rounded-full bg-white/10 px-1 text-[10px] font-bold">
+                      <span
+                        className={classNames(
+                          'inline-flex h-4 min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold',
+                          isCatAnyActive ? CHIP_PILL_ACTIVE_CLASS : CHIP_PILL_INACTIVE_CLASS
+                        )}
+                      >
                         {catGroup.count}
                       </span>
                     </button>
@@ -230,14 +268,18 @@ const SourceSection: React.FC<{
                           aria-pressed={tool.active}
                           title={`Toggle ${tool.label}`}
                           className={classNames(
-                            'inline-flex min-h-[26px] items-center gap-2 rounded-full border px-2.5 text-[11px] font-semibold transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400',
-                            tool.active
-                              ? 'border-blue-700/60 bg-blue-500/[0.18] text-blue-100'
-                              : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.28)] text-slate-300 hover:bg-slate-700/40 hover:text-white'
+                            'inline-flex min-h-[26px] items-center gap-2 rounded-full border px-2.5 text-[11px] font-semibold transition-colors cursor-pointer',
+                            CHIP_FOCUS_CLASS,
+                            tool.active ? CHIP_SUB_ACTIVE_CLASS : CHIP_INACTIVE_CLASS
                           )}
                         >
                           <span>{tool.label}</span>
-                          <span className="inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white/10 px-1 text-[10px] font-bold">
+                          <span
+                            className={classNames(
+                              'inline-flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold',
+                              tool.active ? CHIP_PILL_ACTIVE_CLASS : CHIP_PILL_INACTIVE_CLASS
+                            )}
+                          >
                             {tool.count}
                           </span>
                         </button>
@@ -270,7 +312,7 @@ const CategoryTree: React.FC<{
             key={group.value}
             className={classNames(
               'grid gap-2 rounded-lg border p-2.5 transition-colors',
-              group.active ? 'border-blue-700/50 bg-slate-900/70' : 'border-slate-700/40 bg-slate-900/40'
+              group.active ? 'border-slate-700/60 bg-slate-900/60' : 'border-slate-800/60 bg-slate-950/30'
             )}
           >
             <button
@@ -280,11 +322,19 @@ const CategoryTree: React.FC<{
               title={`Toggle main category ${group.label}`}
               className={classNames(
                 'inline-flex w-fit min-h-[34px] items-center gap-2 rounded-md border px-3 text-[13px] font-bold transition-colors cursor-pointer',
-                group.active ? 'border-blue-500/50 bg-blue-500/20 text-[#eef6ff]' : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.3)] text-slate-300 hover:bg-[rgba(84,94,106,0.36)] hover:text-white'
+                CHIP_FOCUS_CLASS,
+                group.active ? CHIP_ACTIVE_CLASS : CHIP_INACTIVE_CLASS
               )}
             >
               <span>{group.label}</span>
-              <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-white/10 px-1.5 text-[11px] font-bold">{group.count}</span>
+              <span
+                className={classNames(
+                  'inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[11px] font-bold',
+                  group.active ? CHIP_PILL_ACTIVE_CLASS : CHIP_PILL_INACTIVE_CLASS
+                )}
+              >
+                {group.count}
+              </span>
             </button>
             {group.subcategories.length > 0 && (
               <div className="relative flex flex-wrap gap-2 border-l border-slate-700/60 pl-[18px]">
@@ -297,11 +347,19 @@ const CategoryTree: React.FC<{
                     title={`Toggle subcategory ${sub.label}`}
                     className={classNames(
                       'inline-flex min-h-[26px] items-center gap-2 rounded-full border px-2.5 text-[11px] font-semibold transition-colors cursor-pointer',
-                      sub.active ? 'border-blue-700/60 bg-blue-500/[0.18] text-blue-100' : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.28)] text-slate-300 hover:bg-slate-700/40 hover:text-white'
+                      CHIP_FOCUS_CLASS,
+                      sub.active ? CHIP_SUB_ACTIVE_CLASS : CHIP_INACTIVE_CLASS
                     )}
                   >
                     <span>{sub.label}</span>
-                    <span className="inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white/10 px-1 text-[10px] font-bold">{sub.count}</span>
+                    <span
+                      className={classNames(
+                        'inline-flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold',
+                        sub.active ? CHIP_PILL_ACTIVE_CLASS : CHIP_PILL_INACTIVE_CLASS
+                      )}
+                    >
+                      {sub.count}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -406,7 +464,10 @@ const IssueFilterBar: React.FC<IssueFilterBarProps> = ({
             title={isPinnedOpen ? 'Hide filter options' : 'Open filter options'}
             className={classNames(
               'inline-flex min-h-[32px] items-center gap-1.5 rounded-md border px-3 text-xs font-semibold cursor-pointer transition-colors',
-              isPinnedOpen ? 'border-blue-700/60 bg-blue-500/[0.18] text-sky-200' : 'border-blue-800/40 bg-blue-500/10 text-sky-300 hover:bg-blue-500/[0.18]'
+              CHIP_FOCUS_CLASS,
+              isPinnedOpen
+                ? CHIP_ACTIVE_CLASS
+                : 'border-slate-700/80 bg-slate-800/50 text-slate-300 hover:border-slate-600 hover:bg-slate-800/80 hover:text-slate-100'
             )}
           >
             <FilterIcon />
@@ -417,7 +478,10 @@ const IssueFilterBar: React.FC<IssueFilterBarProps> = ({
               type="button"
               onClick={onReset}
               title="Reset all issue filters"
-              className="inline-flex min-h-[32px] items-center gap-1.5 rounded-md border border-slate-600/50 bg-slate-700/40 px-3 text-xs font-semibold text-slate-300 hover:bg-slate-700/70 cursor-pointer"
+              className={classNames(
+                'inline-flex min-h-[32px] items-center gap-1.5 rounded-md border border-slate-700/80 bg-slate-800/50 px-3 text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-slate-100 cursor-pointer transition-colors',
+                CHIP_FOCUS_CLASS
+              )}
             >
               <XIcon />
               <span>Reset Filters</span>

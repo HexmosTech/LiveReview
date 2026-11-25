@@ -30,6 +30,7 @@ import {
     isBlastRadiusSkipped,
 } from '../../types/reviews';
 import {
+    deriveSeverityCounts,
     deriveToolAccounting,
     hasAccountingDetails,
     formatEventData,
@@ -419,24 +420,10 @@ const ReviewDetail: React.FC = () => {
         return `https://github.com/${review.repository}`;
     }, [review]);
 
-    const eventSeverityCounts = useMemo(() => {
-        if (summary?.severityCounts) {
-            return summary.severityCounts;
-        }
-        let high = 0, medium = 0, low = 0;
-        events.forEach(e => {
-            const dataAny = e.data as any;
-            const sev = (dataAny?.severity || '').toLowerCase();
-            const eventType = String(e.type);
-            if (e.level === 'error' || sev === 'critical' || sev === 'high') high++;
-            else if (e.level === 'warn' || sev === 'warning' || sev === 'medium') medium++;
-            else if (sev === 'info' || sev === 'low' || (e.level === 'info' && eventType === 'tool_result')) low++;
-            else if (e.level === 'info' && eventType === 'tool_dispatch') {
-                // Ignore dispatch log events
-            } else if (sev === 'info' || e.level === 'info') low++;
-        });
-        return { high, medium, low };
-    }, [summary?.severityCounts, events]);
+    const eventSeverityCounts = useMemo(
+        () => deriveSeverityCounts(summary, review, events),
+        [summary, review, events]
+    );
 
     // Initial load
     useEffect(() => {

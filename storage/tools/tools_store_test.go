@@ -141,10 +141,10 @@ func getTestMockDB() *sql.DB {
 
 func mockSampleToolsRows() *mockRows {
 	return &mockRows{
-		columns: []string{"id", "name", "description", "lambda_arn", "multiplier", "use_case", "category"},
+		columns: []string{"id", "name", "description", "lambda_arn", "multiplier", "use_case", "category", "docs_url"},
 		rows: [][]driver.Value{
-			{int64(1), "tool-a", "Tool A description", "tool-a-linter", 1.0, "Linting", "Code Quality"},
-			{int64(2), "tool-b", "Tool B description", "tool-b-linter", 5.0, "Security", "Security Scanning"},
+			{int64(1), "tool-a", "Tool A description", "tool-a-linter", 1.0, "Linting", "Code Quality", "https://example.com/tool-a"},
+			{int64(2), "tool-b", "Tool B description", "tool-b-linter", 5.0, "Security", "Security Scanning", "https://example.com/tool-b"},
 		},
 	}
 }
@@ -193,7 +193,7 @@ func TestToolsStore(t *testing.T) {
 		setMockHandlers(func(query string, args []driver.NamedValue) (driver.Rows, error) {
 			if strings.Contains(query, "available_tools") {
 				return &mockRows{
-					columns: []string{"id", "name", "description", "lambda_arn", "multiplier", "use_case", "category"},
+					columns: []string{"id", "name", "description", "lambda_arn", "multiplier", "use_case", "category", "docs_url"},
 					rows:    [][]driver.Value{},
 				}, nil
 			}
@@ -228,10 +228,10 @@ func TestToolsStore(t *testing.T) {
 			t.Fatalf("expected 2 tools from DB, got %d", len(catalog))
 		}
 
-		if catalog[0].Name != "tool-a" || catalog[0].LambdaARN == "" {
+		if catalog[0].Name != "tool-a" || catalog[0].LambdaARN == "" || catalog[0].DocsURL != "https://example.com/tool-a" {
 			t.Errorf("unexpected tool[0]: %+v", catalog[0])
 		}
-		if catalog[1].Name != "tool-b" || catalog[1].Multiplier != 5.0 {
+		if catalog[1].Name != "tool-b" || catalog[1].Multiplier != 5.0 || catalog[1].DocsURL != "https://example.com/tool-b" {
 			t.Errorf("unexpected tool[1]: %+v", catalog[1])
 		}
 	})

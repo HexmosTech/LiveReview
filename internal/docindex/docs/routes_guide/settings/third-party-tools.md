@@ -59,8 +59,9 @@ Tool execution consumes credits from the organization's monthly credit pool (def
 
 ## Key Actions
 
-- **Toggle tool enablement** — enable or disable any of the 15 launch tools using the status toggle switches.
-- **Sort tools** — sort the tool catalog by tool name, use case, credit multiplier, or enabled status.
+- **Inspect tool details (`i` button)** — hover over or click the `(i)` button next to any tool name to open a popover showing what the tool does, why it is used, and a link to its official GitHub repository.
+- **Toggle tool enablement** — enable or disable any tool using the status toggle switches.
+- **Sort tools** — sort the tool catalog by tool name, use case, category, credit multiplier, or enabled status.
 - **Paginate catalog** — navigate through tools in batches of 10 items per page.
 - **Review credit usage and impact** — inspect current monthly credit usage, progress bar, active total multiplier, and estimated remaining reviews.
 - **Save configurations** — commit changed tool statuses in a batch update via `PUT /api/v1/orgs/:org_id/tools/:tool_id`.
