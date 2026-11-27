@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	neturl "net/url"
 	"strings"
@@ -117,12 +118,14 @@ func (w *ManualReviewWorker) Work(ctx context.Context, job *river.Job[ManualRevi
 				log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] Failed to package diff zip for static analysis tools")
 			} else if diffZipBase64 != "" && w.jq != nil {
 				localDiffs := diffutil.ConvertModelDiffsToLocal(changes)
+				repoID := resolvePRRepositoryID(ctx, w.jq.db, args.OrgID, args.ReviewID, req.URL)
 				if _, dispatchErr := w.jq.DispatchTools(ctx, ToolDispatchParams{
 					OrgID:          args.OrgID,
+					RepositoryID:   repoID,
 					ReviewID:       args.ReviewID,
 					PlanCode:       args.PlanCode,
 					DiffZipBase64:  diffZipBase64,
-					LocalDiffs:    localDiffs,
+					LocalDiffs:     localDiffs,
 					LRCBundle:      lrcBundle,
 					ProviderConfig: &req.Provider,
 					PostingID:      postingID,
@@ -229,6 +232,85 @@ func (w *ManualReviewWorker) extractChangesAndLRC(ctx context.Context, req *revi
 	}
 
 	return changes, bundle, prID
+}
+
+// resolvePRRepositoryID maps a PR/MR review back to public.repositories.id (org-scoped)
+// so per-repository static analysis tool settings apply to PR reviews only.
+// Non-PR trigger types (cli_diff, scheduled) always return 0.
+func resolvePRRepositoryID(ctx context.Context, db *sql.DB, orgID, reviewID int64, requestURL string) int64 {
+	if db == nil || orgID <= 0 || reviewID <= 0 {
+		return 0
+	}
+
+	var repoID, connectorID sql.NullInt64
+	var prURL, repositoryCol, triggerType string
+	err := db.QueryRowContext(ctx, `
+		SELECT pr.repository_id, r.connector_id, COALESCE(r.pr_mr_url, ''), COALESCE(r.repository, ''), COALESCE(r.trigger_type, '')
+		FROM public.reviews r
+		LEFT JOIN public.pull_requests pr ON pr.id = r.pull_request_id AND pr.org_id = r.org_id
+		WHERE r.id = $1 AND r.org_id = $2
+	`, reviewID, orgID).Scan(&repoID, &connectorID, &prURL, &repositoryCol, &triggerType)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			log.Warn().Err(err).Int64("review_id", reviewID).Int64("org_id", orgID).Msg("resolvePRRepositoryID: review lookup failed")
+		}
+		return 0
+	}
+	if triggerType == "cli_diff" || triggerType == "scheduled" {
+		return 0
+	}
+	if repoID.Valid && repoID.Int64 > 0 {
+		return repoID.Int64
+	}
+
+	candidateURL := strings.TrimSpace(prURL)
+	if candidateURL == "" {
+		candidateURL = strings.TrimSpace(requestURL)
+	}
+
+	var repoWebURL, repoFullName string
+	if cloneURL, _, parseErr := parsePRURL(candidateURL); parseErr == nil {
+		repoWebURL = strings.TrimSuffix(cloneURL, ".git")
+		repoFullName = review.ExtractRepoFullName(repoWebURL)
+	}
+	if repoFullName == "" && strings.Contains(repositoryCol, "/") {
+		repoFullName = review.ExtractRepoFullName(repositoryCol)
+		if repoFullName == "" && !strings.Contains(repositoryCol, "://") {
+			repoFullName = strings.Trim(repositoryCol, "/")
+		}
+	}
+	if repoWebURL == "" && repoFullName == "" {
+		return 0
+	}
+
+	var matchedID int64
+	if connectorID.Valid && connectorID.Int64 > 0 {
+		err = db.QueryRowContext(ctx, `
+			SELECT id FROM public.repositories
+			WHERE org_id = $1 AND connector_id = $2
+			  AND (($3 <> '' AND LOWER(full_name) = LOWER($3))
+			       OR ($4 <> '' AND LOWER(TRIM(TRAILING '/' FROM web_url)) = LOWER(TRIM(TRAILING '/' FROM $4))))
+			ORDER BY id DESC
+			LIMIT 1
+		`, orgID, connectorID.Int64, repoFullName, repoWebURL).Scan(&matchedID)
+		if err == nil && matchedID > 0 {
+			return matchedID
+		}
+	}
+
+	if repoWebURL != "" {
+		err = db.QueryRowContext(ctx, `
+			SELECT id FROM public.repositories
+			WHERE org_id = $1
+			  AND LOWER(TRIM(TRAILING '/' FROM web_url)) = LOWER(TRIM(TRAILING '/' FROM $2))
+			ORDER BY id DESC
+			LIMIT 1
+		`, orgID, repoWebURL).Scan(&matchedID)
+		if err == nil && matchedID > 0 {
+			return matchedID
+		}
+	}
+	return 0
 }
 
 // resolvePostingID determines the provider-appropriate MR/PR identifier for posting review comments.

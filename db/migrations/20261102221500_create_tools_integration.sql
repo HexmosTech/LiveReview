@@ -121,7 +121,18 @@ CREATE TABLE IF NOT EXISTS public.available_tools (
 ALTER TABLE public.available_tools
     ADD COLUMN IF NOT EXISTS docs_url TEXT DEFAULT '' NOT NULL;
 
+-- 9. Repository Settings Column
+-- User-configured per-repository behavioral preferences (mirrors orgs.settings).
+-- SAST tool overrides for PR reviews live under settings->'tools'.
+ALTER TABLE public.repositories
+    ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+COMMENT ON COLUMN public.repositories.settings IS 'User-configured per-repository behavioral preferences (e.g. PR-only static analysis tool overrides under settings->''tools'').';
+
 -- migrate:down
+
+ALTER TABLE public.repositories
+    DROP COLUMN IF EXISTS settings;
 
 DROP TABLE IF EXISTS public.available_tools;
 DROP INDEX IF EXISTS idx_review_events_review_event_type;

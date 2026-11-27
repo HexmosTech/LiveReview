@@ -404,11 +404,11 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
-        // Third-Party Tools tab visible only in cloud mode for org owners on paid plans
+        // SAST Tools tab visible only in cloud mode for org owners on paid plans
         // (super admins may access every owner surface — mirrors RequireOrgOwner)
         ...(showToolsTab ? [{
             id: 'third-party-tools',
-            name: 'Third-Party Tools',
+            name: 'SAST Tools',
             icon: <Icons.Tools />
         }] : []),
     ];
@@ -887,7 +887,7 @@ const Settings = () => {
                     {activeTab === 'third-party-tools' && isCloudMode() && !showToolsTab && (
                         <Card>
                             <div className="p-4 text-sm text-slate-400">
-                                Third-party static analysis tools are only available to organization owners on paid plans.
+                                SAST Tools are only available to organization owners on paid plans.
                             </div>
                         </Card>
                     )}

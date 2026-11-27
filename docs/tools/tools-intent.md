@@ -45,16 +45,22 @@ Tools run automatically across all review workflows:
 
 ## 4. How Organizations and Repositories Control Tools
 
-Tool execution uses a two-level control model: **Organization Default** and **Repository Policy**.
+Tool execution uses a three-level control model: **Organization Default**, **Repository UI Override (PR reviews only)**, and **Repository File Policy (`.lrc/policy/tools.toml`)**.
 
 ### 4.1 Organization Level (Settings → Third-Party Tools)
-- Organization owners choose which tools are allowed to run by default for the organization.
-- When a repository does not provide a `.lrc/policy/tools.toml` file, reviews fall back to running these organization-level enabled tools.
+- Organization owners choose which tools are allowed to run by default for the organization (`orgs.settings->'tools'`).
+- When a repository is set to inherit (default) and provides no `.lrc/policy/tools.toml` file, reviews run these organization-level enabled tools.
 
-### 4.2 Repository Level (`.lrc/policy/tools.toml`)
+### 4.2 Repository UI Level (`repositories.settings->'tools'`, PR Reviews Only)
+From **Explore → Repositories → Settings → Third-Party Tools**:
+- **Inherit organization default (`inherit`)**: Automatically follows Changes in Organization Settings.
+- **Custom for this repository (`custom`)**: Saves a repository-specific selection of enabled tools under `repositories.settings->'tools'`.
+- **PR-Only Scope**: Applies **only to pull/merge request reviews**. CLI reviews (`lrc review`) and scheduled branch reviews ignore per-repository UI overrides and continue using organization defaults plus local `.lrc/policy/tools.toml`.
+
+### 4.3 Repository File Policy (`.lrc/policy/tools.toml`)
 Repositories can fine-tune and override tool execution by adding a configuration file at `.lrc/policy/tools.toml` (or `.lrc/tools.toml`):
 
-1. **Baseline + Overlay Model**: Global organization settings act as the default baseline. `.lrc/policy/tools.toml` serves as a repository-level overlay:
+1. **Baseline + Overlay Model**: Organization settings (or custom Repository UI settings on PR reviews) act as the baseline. `.lrc/policy/tools.toml` serves as the final overlay:
    - **Explicit Opt-In**: A tool configured with `enabled = true` (or custom rules) will run even if disabled in the organization's settings.
    - **Explicit Opt-Out**: A tool configured with `enabled = false` will NOT run, even if enabled in the organization's settings:
      ```toml

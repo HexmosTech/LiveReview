@@ -2,7 +2,9 @@ package jobqueue
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -18,11 +20,14 @@ import (
 
 // ToolDispatchParams encapsulates parameters for dispatching static analysis tools.
 type ToolDispatchParams struct {
-	OrgID          int64
+	OrgID int64
+	// RepositoryID is set ONLY for pull/merge request reviews so per-repo UI settings apply;
+	// CLI diff and non-PR reviews leave this 0 to keep org + .lrc behavior.
+	RepositoryID   int64
 	ReviewID       int64
 	PlanCode       string
 	DiffZipBase64  string
-	LocalDiffs    []lib.LocalCodeDiff
+	LocalDiffs     []lib.LocalCodeDiff
 	LRCBundle      lrcconfig.Bundle
 	Logger         *logging.ReviewLogger
 	EventSink      logging.EventSink
@@ -78,41 +83,81 @@ func (jq *JobQueue) DispatchTools(ctx context.Context, p ToolDispatchParams) (in
 
 	var enabledTools []storagetools.AvailableTool
 
-	// 1. Fetch organization enabled tools as the default baseline
-	orgTools, orgErr := toolsStore.GetEnabledToolsForOrg(ctx, p.OrgID)
-	if orgErr != nil {
-		logMsg("[WARN] DispatchTools: Failed to fetch enabled tools for org %d: %v", p.OrgID, orgErr)
-		if !hasPolicyFile {
-			return 0, fmt.Errorf("failed to fetch enabled tools for org %d: %w", p.OrgID, orgErr)
+	// 1. Resolve baseline: org settings by default, overridden when a PR review's repository sets mode='custom'.
+	baselineEnabledMap := make(map[string]bool)
+	usingRepoCustom := false
+	var repoCustomTools map[string]storagetools.OrgToolConfig
+
+	if p.RepositoryID > 0 {
+		repoSettings, repoErr := toolsStore.GetRepoToolSettings(ctx, p.OrgID, p.RepositoryID)
+		if repoErr != nil {
+			if !errors.Is(repoErr, sql.ErrNoRows) {
+				logMsg("[WARN] DispatchTools: Failed to load repository tool settings (repo=%d org=%d): %v", p.RepositoryID, p.OrgID, repoErr)
+			}
+		} else if repoSettings.Mode == storagetools.RepoToolModeCustom {
+			usingRepoCustom = true
+			repoCustomTools = repoSettings.Tools
+			for k, cfg := range repoSettings.Tools {
+				if cfg.Enabled {
+					baselineEnabledMap[strings.ToLower(k)] = true
+				}
+			}
 		}
 	}
-	orgEnabledMap := make(map[string]bool)
-	for _, t := range orgTools {
-		orgEnabledMap[strings.ToLower(t.Name)] = true
+
+	var orgTools []storagetools.AvailableTool
+	if !usingRepoCustom {
+		var orgErr error
+		orgTools, orgErr = toolsStore.GetEnabledToolsForOrg(ctx, p.OrgID)
+		if orgErr != nil {
+			logMsg("[WARN] DispatchTools: Failed to fetch enabled tools for org %d: %v", p.OrgID, orgErr)
+			if !hasPolicyFile {
+				return 0, fmt.Errorf("failed to fetch enabled tools for org %d: %w", p.OrgID, orgErr)
+			}
+		}
+		for _, t := range orgTools {
+			baselineEnabledMap[strings.ToLower(t.Name)] = true
+		}
 	}
 
-	if !hasPolicyFile {
+	if !hasPolicyFile && !usingRepoCustom {
 		enabledTools = orgTools
 	} else {
-		// 2. Load the full tools catalog so repo policy (.lrc) can overlay settings
+		// 2. Load the full tools catalog so repo UI custom mode and/or .lrc policy can resolve over it
 		catalog, catErr := toolsStore.LoadCatalog(ctx)
 		if catErr != nil {
 			logMsg("[WARN] DispatchTools: Failed to load tools catalog for org %d: %v", p.OrgID, catErr)
 			return 0, fmt.Errorf("failed to load tools catalog for org %d: %w", p.OrgID, catErr)
 		}
 
-		// 3. Baseline + Overlay:
-		// - Global organization settings are the default baseline.
-		// - Repository policy (.lrc/policy/tools.toml or .lrc/tools.toml) overrides:
-		//   * Tool configured with enabled = true (or configured without enabled = false) runs even if disabled in org settings.
-		//   * Tool with enabled = false does NOT run even if enabled in org settings.
-		//   * Tool not mentioned in tools.toml inherits the organization baseline.
+		// 3. Precedence: Org Settings -> Repo UI Settings (custom mode, PR reviews only) -> .lrc/policy/tools.toml overlay:
+		//   * Tool with enabled = true (or configured without enabled = false) runs even if disabled in baseline.
+		//   * Tool with enabled = false does NOT run even if enabled in baseline.
+		//   * Tool not mentioned in tools.toml inherits the baseline (repo custom when active, else org settings).
 		for _, t := range catalog {
 			toolNameLower := strings.ToLower(t.Name)
-			shouldRun := orgEnabledMap[toolNameLower]
+			shouldRun := baselineEnabledMap[toolNameLower]
+			if usingRepoCustom && !shouldRun {
+				if cfgByID, ok := repoCustomTools[fmt.Sprintf("%d", t.ID)]; ok {
+					shouldRun = cfgByID.Enabled
+				}
+			}
 
 			var cfg *lrcconfig.ToolRuleConfig
-			if parseErr == nil {
+			if usingRepoCustom {
+				if repoCfg, ok := storagetools.LookupToolConfig(repoCustomTools, t); ok && len(repoCfg.ConfigJSON) > 0 {
+					var rule storagetools.RepoToolRuleConfig
+					if umErr := json.Unmarshal(repoCfg.ConfigJSON, &rule); umErr != nil {
+						logMsg("[WARN] DispatchTools: invalid config_json for tool %q: %v", t.Name, umErr)
+					} else if len(rule.Include) > 0 || len(rule.Exclude) > 0 {
+						cfg = &lrcconfig.ToolRuleConfig{
+							Include: rule.Include,
+							Exclude: rule.Exclude,
+						}
+					}
+				}
+			}
+			if hasPolicyFile && parseErr == nil {
 				if c, configured := toolRuleConfigs[toolNameLower]; configured {
 					cfg = c
 					if c.Enabled != nil {

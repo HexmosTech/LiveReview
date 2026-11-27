@@ -135,9 +135,9 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         ? [
             {
                 id: 'tools-usage-widget',
-                title: 'Third-Party Static Analysis Tools',
+                title: 'SAST Tools',
                 category: 'system' as const,
-                description: 'Enabled third-party static analysis security and linting tools.',
+                description: 'Enabled SAST security and linting tools.',
                 defaultLayout: { x: 0, y: 91, w: 12, h: 6 },
                 minW: 4, minH: 5,
                 component: ToolsUsageWidget,

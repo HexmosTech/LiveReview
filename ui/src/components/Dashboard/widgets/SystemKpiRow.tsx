@@ -66,7 +66,7 @@ export const SystemKpiRow: React.FC = () => {
             <KpiTile title="Repositories" value={overview.total_repos[period]} icon={<Icons.Folder />} onClick={() => navigate('/explore/repositories')} />
             <KpiTile title="PRs / MRs Tracked" value={overview.total_prs[period]} icon={<Icons.Layers />} onClick={() => navigate('/explore/merge-requests')} />
             {showTools && (
-                <KpiTile title="Third-Party Tools" value={15} icon={<Icons.Settings />} onClick={() => navigate('/settings#third-party-tools')} />
+                <KpiTile title="SAST Tools" value={15} icon={<Icons.Settings />} onClick={() => navigate('/settings#third-party-tools')} />
             )}
         </div>
     );

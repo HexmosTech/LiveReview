@@ -420,4 +420,166 @@ func TestToolsStore(t *testing.T) {
 			t.Fatalf("expected nil for nonexistent tool, got %v, err=%v", unknownTool, err)
 		}
 	})
+
+	t.Run("RepoToolSettings_ReadMergeAndUpsert", func(t *testing.T) {
+		ctx := context.Background()
+		const orgID = int64(77)
+		const repoID = int64(99)
+
+		t.Run("DefaultsToInheritWhenSettingsNull", func(t *testing.T) {
+			setMockHandlers(func(query string, args []driver.NamedValue) (driver.Rows, error) {
+				if strings.Contains(query, "FROM public.repositories") {
+					return &mockRows{
+						columns: []string{"tools"},
+						rows:    [][]driver.Value{{nil}},
+					}, nil
+				}
+				return nil, fmt.Errorf("unexpected query: %s", query)
+			}, nil)
+			defer resetMockHandlers()
+
+			store := NewToolsStore(db)
+			got, err := store.GetRepoToolSettings(ctx, orgID, repoID)
+			if err != nil {
+				t.Fatalf("GetRepoToolSettings returned error: %v", err)
+			}
+			if got.Mode != RepoToolModeInherit {
+				t.Errorf("expected mode %q, got %q", RepoToolModeInherit, got.Mode)
+			}
+		})
+
+		t.Run("ReturnsErrNoRowsWhenRepoMissingOrWrongOrg", func(t *testing.T) {
+			setMockHandlers(func(query string, args []driver.NamedValue) (driver.Rows, error) {
+				if strings.Contains(query, "FROM public.repositories") {
+					return &mockRows{columns: []string{"tools"}, rows: [][]driver.Value{}}, nil
+				}
+				return nil, fmt.Errorf("unexpected query: %s", query)
+			}, nil)
+			defer resetMockHandlers()
+
+			store := NewToolsStore(db)
+			_, err := store.GetRepoToolSettings(ctx, orgID, repoID)
+			if err != sql.ErrNoRows {
+				t.Fatalf("expected sql.ErrNoRows, got %v", err)
+			}
+		})
+
+		t.Run("GetAvailableToolsForRepo_OverridesInCustomMode", func(t *testing.T) {
+			repoToolsJSON := []byte(`{"mode":"custom","tools":{"tool-b":{"enabled":true}}}`)
+			orgToolsJSON := []byte(`{"tool-a":{"enabled":true}}`)
+			setMockHandlers(func(query string, args []driver.NamedValue) (driver.Rows, error) {
+				if strings.Contains(query, "FROM public.repositories") {
+					return &mockRows{columns: []string{"tools"}, rows: [][]driver.Value{{repoToolsJSON}}}, nil
+				}
+				if strings.Contains(query, "FROM public.orgs") {
+					return &mockRows{columns: []string{"tools"}, rows: [][]driver.Value{{orgToolsJSON}}}, nil
+				}
+				if strings.Contains(query, "available_tools") {
+					return mockSampleToolsRows(), nil
+				}
+				return &mockRows{columns: []string{"data"}, rows: [][]driver.Value{}}, nil
+			}, nil)
+			defer resetMockHandlers()
+
+			store := NewToolsStore(db)
+			mode, views, err := store.GetAvailableToolsForRepo(ctx, orgID, repoID)
+			if err != nil {
+				t.Fatalf("GetAvailableToolsForRepo failed: %v", err)
+			}
+			if mode != RepoToolModeCustom {
+				t.Fatalf("expected custom mode, got %q", mode)
+			}
+			byName := map[string]RepoToolView{}
+			for _, v := range views {
+				byName[v.Name] = v
+			}
+			if byName["tool-a"].Enabled || !byName["tool-a"].OrgEnabled {
+				t.Errorf("tool-a should have Enabled=false, OrgEnabled=true in custom override; got %+v", byName["tool-a"])
+			}
+			if !byName["tool-b"].Enabled || byName["tool-b"].OrgEnabled {
+				t.Errorf("tool-b should have Enabled=true, OrgEnabled=false in custom override; got %+v", byName["tool-b"])
+			}
+		})
+
+		t.Run("UpsertRepoToolSettings_PersistsValidatedCustomSnapshot", func(t *testing.T) {
+			var capturedQuery string
+			var capturedArgs []driver.NamedValue
+
+			setMockHandlers(
+				func(query string, args []driver.NamedValue) (driver.Rows, error) {
+					if strings.Contains(query, "FROM public.repositories") {
+						return &mockRows{columns: []string{"tools"}, rows: [][]driver.Value{{nil}}}, nil
+					}
+					if strings.Contains(query, "available_tools") {
+						return mockSampleToolsRows(), nil
+					}
+					return &mockRows{columns: []string{"data"}, rows: [][]driver.Value{}}, nil
+				},
+				func(query string, args []driver.NamedValue) (driver.Result, error) {
+					capturedQuery = query
+					capturedArgs = args
+					return mockResult{rowsAffected: 1}, nil
+				},
+			)
+			defer resetMockHandlers()
+
+			store := NewToolsStore(db)
+			saved, err := store.UpsertRepoToolSettings(ctx, orgID, repoID, RepoToolModeCustom, map[string]bool{
+				"tool-b": true,
+			})
+			if err != nil {
+				t.Fatalf("UpsertRepoToolSettings failed: %v", err)
+			}
+			if saved.Mode != RepoToolModeCustom || !saved.Tools["tool-b"].Enabled || saved.Tools["tool-a"].Enabled {
+				t.Fatalf("unexpected saved settings: %+v", saved)
+			}
+			if !strings.Contains(capturedQuery, "UPDATE public.repositories") || !strings.Contains(capturedQuery, "org_id = $2") {
+				t.Errorf("expected org-scoped UPDATE public.repositories, got: %s", capturedQuery)
+			}
+			if len(capturedArgs) < 3 {
+				t.Fatalf("expected 3 args, got %d", len(capturedArgs))
+			}
+
+			if _, err := store.UpsertRepoToolSettings(ctx, orgID, repoID, "invalid", nil); err == nil {
+				t.Errorf("expected error for invalid mode")
+			}
+		})
+
+		t.Run("UpsertRepoToolSettingsWithConfigs_PersistsIncludeExclude", func(t *testing.T) {
+			setMockHandlers(
+				func(query string, args []driver.NamedValue) (driver.Rows, error) {
+					if strings.Contains(query, "FROM public.repositories") {
+						return &mockRows{columns: []string{"tools"}, rows: [][]driver.Value{{nil}}}, nil
+					}
+					if strings.Contains(query, "available_tools") {
+						return mockSampleToolsRows(), nil
+					}
+					return &mockRows{columns: []string{"data"}, rows: [][]driver.Value{}}, nil
+				},
+				func(query string, args []driver.NamedValue) (driver.Result, error) {
+					return mockResult{rowsAffected: 1}, nil
+				},
+			)
+			defer resetMockHandlers()
+
+			store := NewToolsStore(db)
+			saved, err := store.UpsertRepoToolSettingsWithConfigs(
+				ctx, orgID, repoID, RepoToolModeCustom,
+				map[string]bool{"tool-a": true, "tool-b": false},
+				map[string]RepoToolRuleConfig{
+					"tool-a": {Include: []string{"**/*.py"}, Exclude: []string{"tests/**"}},
+				},
+			)
+			if err != nil {
+				t.Fatalf("UpsertRepoToolSettingsWithConfigs failed: %v", err)
+			}
+			var decoded RepoToolRuleConfig
+			if err := json.Unmarshal(saved.Tools["tool-a"].ConfigJSON, &decoded); err != nil {
+				t.Fatalf("unmarshal saved ConfigJSON: %v", err)
+			}
+			if len(decoded.Include) != 1 || decoded.Include[0] != "**/*.py" || len(decoded.Exclude) != 1 || decoded.Exclude[0] != "tests/**" {
+				t.Fatalf("expected include/exclude globs persisted, got %+v", decoded)
+			}
+		})
+	})
 }

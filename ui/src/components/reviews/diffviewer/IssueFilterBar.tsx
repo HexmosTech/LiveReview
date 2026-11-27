@@ -112,7 +112,7 @@ const SourceSection: React.FC<{
 
   const groupsMap = new Map<string, ToolCategoryGroup>();
   staticTools.forEach((tool) => {
-    const cat = tool.category?.trim() || 'Static Tools';
+    const cat = tool.category?.trim() || 'SAST Tools';
     const group = groupsMap.get(cat) || { category: cat, count: 0, tools: [] };
     group.count += tool.count;
     group.tools.push(tool);
@@ -175,7 +175,7 @@ const SourceSection: React.FC<{
           </div>
         )}
 
-        {/* Row 2: Static Tools */}
+        {/* Row 2: SAST Tools */}
         {staticTools.length > 0 && (
           <div className="grid gap-2.5">
             <div className="flex items-center">
@@ -183,7 +183,7 @@ const SourceSection: React.FC<{
                 type="button"
                 onClick={toggleAllStatic}
                 aria-pressed={isAllStaticActive}
-                title={isAllStaticActive ? 'Disable all static tools' : 'Enable all static tools'}
+                title={isAllStaticActive ? 'Disable all SAST tools' : 'Enable all SAST tools'}
                 className={classNames(
                   'inline-flex min-h-[34px] items-center gap-2 rounded-md border px-3 text-[13px] font-bold transition-colors cursor-pointer',
                   CHIP_FOCUS_CLASS,
@@ -194,7 +194,7 @@ const SourceSection: React.FC<{
                     : CHIP_INACTIVE_CLASS
                 )}
               >
-                <span>Static Tools</span>
+                <span>SAST Tools</span>
                 <span
                   className={classNames(
                     'inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[11px] font-bold',

@@ -1761,6 +1761,14 @@ func (s *Server) setupRoutes() {
 	repositoriesGroup.POST("/:repoId/sync", s.TriggerRepositoryPRSync)
 	repositoriesGroup.GET("/:repoId/cache", s.GetRepositoryCache)
 	repositoriesGroup.DELETE("/:repoId/cache", s.ClearRepositoryCache)
+	repositoriesGroup.GET("/:repoId/tools", s.GetRepositoryTools)
+	s.audited(repositoriesGroup, echo.PUT, "/:repoId/tools", auditlog.Spec{
+		Action:          auditlog.ActionRepositoryToolsUpdate,
+		Category:        auditlog.CategoryRepository,
+		ResourceType:    "repository",
+		ResourceIDParam: "repoId",
+		Severity:        auditlog.SeverityWarning,
+	}, s.UpdateRepositoryTools)
 	repositoriesGroup.GET("/:repoId/pull-requests", s.ListPullRequestsForRepo)
 	repositoriesGroup.GET("/:repoId/pull-requests/:prId", s.GetPullRequest)
 	repositoriesGroup.GET("/:repoId/scheduled-review-runs", s.GetScheduledReviewRuns)

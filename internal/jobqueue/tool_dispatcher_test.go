@@ -38,6 +38,7 @@ type mockDBState struct {
 	failReviewsMetadata bool
 
 	orgSettingsJSON     []byte
+	repoSettingsJSON    []byte
 	billingUsed         float64
 	billingLimit        float64
 
@@ -176,6 +177,12 @@ func (c *mockDBConn) QueryContext(ctx context.Context, query string, args []driv
 		return &mockRows{
 			columns: []string{"id", "name", "description", "lambda_arn", "multiplier", "use_case", "category", "docs_url"},
 			rows:    state.getAvailableToolRows(),
+		}, nil
+	}
+	if strings.Contains(query, "repositories") && strings.Contains(query, "settings") {
+		return &mockRows{
+			columns: []string{"settings"},
+			rows:    [][]driver.Value{{state.repoSettingsJSON}},
 		}, nil
 	}
 	if strings.Contains(query, "orgs") && strings.Contains(query, "settings") {
@@ -1066,5 +1073,136 @@ func TestDispatchTools_D10_SyntaxErrorFallsBackToOrgSettings(t *testing.T) {
 
 	if len(state.ledgerBreakdown) != 1 || strings.ToLower(state.ledgerBreakdown[0].ToolName) != "ruff" {
 		t.Fatalf("expected ruff dispatched via fallback, got %+v", state.ledgerBreakdown)
+	}
+}
+
+// D11: PR review with repo settings mode="custom" uses repo's enabled map instead of org settings.
+func TestDispatchTools_D11_RepoCustomSettingsOverrideOrgForPRReview(t *testing.T) {
+	t.Setenv("LIVEREVIEW_IS_CLOUD", "true")
+	ctx := context.Background()
+	mockDB, state := setupMockDB(t)
+
+	// Org enables gitleaks only. Repo custom enables ruff only (disables gitleaks).
+	state.orgSettingsJSON = []byte(`{"gitleaks": {"enabled": true}}`)
+	state.repoSettingsJSON = []byte(`{"mode": "custom", "tools": {"ruff": {"enabled": true}, "gitleaks": {"enabled": false}}}`)
+
+	jq := createTestJobQueue(t, mockDB)
+
+	count, err := jq.DispatchTools(ctx, ToolDispatchParams{
+		OrgID:        1,
+		RepositoryID: 55,
+		ReviewID:     901,
+		PlanCode:     string(license.PlanTeam),
+		LocalDiffs:   []lib.LocalCodeDiff{{NewPath: "app.py"}},
+	})
+	if err != nil {
+		t.Fatalf("DispatchTools failed: %v", err)
+	}
+	if count != 1 || len(state.ledgerBreakdown) != 1 || strings.ToLower(state.ledgerBreakdown[0].ToolName) != "ruff" {
+		t.Fatalf("expected only ruff dispatched from repo custom settings, got count=%d breakdown=%+v", count, state.ledgerBreakdown)
+	}
+}
+
+// D12: PR review with repo settings mode="inherit" follows org defaults.
+func TestDispatchTools_D12_RepoInheritFollowsOrgDefaults(t *testing.T) {
+	t.Setenv("LIVEREVIEW_IS_CLOUD", "true")
+	ctx := context.Background()
+	mockDB, state := setupMockDB(t)
+
+	state.orgSettingsJSON = []byte(`{"trivy": {"enabled": true}}`)
+	state.repoSettingsJSON = []byte(`{"mode": "inherit", "tools": {"ruff": {"enabled": true}}}`)
+
+	jq := createTestJobQueue(t, mockDB)
+
+	count, err := jq.DispatchTools(ctx, ToolDispatchParams{
+		OrgID:        1,
+		RepositoryID: 56,
+		ReviewID:     902,
+		PlanCode:     string(license.PlanTeam),
+		LocalDiffs:   []lib.LocalCodeDiff{{NewPath: "Dockerfile"}},
+	})
+	if err != nil {
+		t.Fatalf("DispatchTools failed: %v", err)
+	}
+	if count != 1 || len(state.ledgerBreakdown) != 1 || strings.ToLower(state.ledgerBreakdown[0].ToolName) != "trivy" {
+		t.Fatalf("expected org default trivy in inherit mode, got count=%d breakdown=%+v", count, state.ledgerBreakdown)
+	}
+}
+
+// D13: Non-PR reviews (RepositoryID == 0) never query or apply repository settings.
+func TestDispatchTools_D13_ZeroRepositoryIDIgnoresRepoSettings(t *testing.T) {
+	t.Setenv("LIVEREVIEW_IS_CLOUD", "true")
+	ctx := context.Background()
+	mockDB, state := setupMockDB(t)
+
+	state.orgSettingsJSON = []byte(`{"gitleaks": {"enabled": true}}`)
+	state.repoSettingsJSON = []byte(`{"mode": "custom", "tools": {"ruff": {"enabled": true}, "gitleaks": {"enabled": false}}}`)
+
+	jq := createTestJobQueue(t, mockDB)
+
+	count, err := jq.DispatchTools(ctx, ToolDispatchParams{
+		OrgID:        1,
+		RepositoryID: 0,
+		ReviewID:     903,
+		PlanCode:     string(license.PlanTeam),
+		LocalDiffs:   []lib.LocalCodeDiff{{NewPath: "app.py"}},
+	})
+	if err != nil {
+		t.Fatalf("DispatchTools failed: %v", err)
+	}
+	if count != 1 || len(state.ledgerBreakdown) != 1 || strings.ToLower(state.ledgerBreakdown[0].ToolName) != "gitleaks" {
+		t.Fatalf("expected org gitleaks when RepositoryID==0, got count=%d breakdown=%+v", count, state.ledgerBreakdown)
+	}
+	for _, q := range state.queries {
+		if strings.Contains(q, "public.repositories") {
+			t.Fatalf("did not expect repository settings query when RepositoryID==0: %s", q)
+		}
+	}
+}
+
+// D14: PR review with repo custom mode + .lrc/policy/tools.toml uses repo custom as baseline and overlays .lrc.
+func TestDispatchTools_D14_RepoCustomWithLRCOverlay(t *testing.T) {
+	t.Setenv("LIVEREVIEW_IS_CLOUD", "true")
+	ctx := context.Background()
+	mockDB, state := setupMockDB(t)
+
+	// Org enables gitleaks; repo custom swaps to ruff + bandit; .lrc disables ruff and enables trivy.
+	state.orgSettingsJSON = []byte(`{"gitleaks": {"enabled": true}}`)
+	state.repoSettingsJSON = []byte(`{"mode": "custom", "tools": {"ruff": {"enabled": true}, "bandit": {"enabled": true}}}`)
+
+	jq := createTestJobQueue(t, mockDB)
+
+	policyTOML := []byte(`
+[ruff]
+enabled = false
+
+[trivy]
+enabled = true
+`)
+
+	count, err := jq.DispatchTools(ctx, ToolDispatchParams{
+		OrgID:        1,
+		RepositoryID: 57,
+		ReviewID:     904,
+		PlanCode:     string(license.PlanTeam),
+		LocalDiffs:   []lib.LocalCodeDiff{{NewPath: "app.py"}},
+		LRCBundle: lrcconfig.Bundle{
+			Files: map[string][]byte{
+				"policy/tools.toml": policyTOML,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("DispatchTools failed: %v", err)
+	}
+	if count != 2 || len(state.ledgerBreakdown) != 2 {
+		t.Fatalf("expected 2 tools (bandit inherited from repo custom + trivy from .lrc), got count=%d breakdown=%+v", count, state.ledgerBreakdown)
+	}
+	names := map[string]bool{}
+	for _, tc := range state.ledgerBreakdown {
+		names[strings.ToLower(tc.ToolName)] = true
+	}
+	if !names["bandit"] || !names["trivy"] || names["ruff"] || names["gitleaks"] {
+		t.Fatalf("unexpected resolved tools: %+v", names)
 	}
 }

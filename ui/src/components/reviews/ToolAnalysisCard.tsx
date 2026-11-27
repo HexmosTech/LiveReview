@@ -212,14 +212,14 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({
       >
         <div className="flex items-center gap-2 min-w-0">
           {renderStatusDot(item)}
-          <span className="font-mono text-[13px] font-semibold text-slate-100 truncate">
+          <span className="text-[13px] font-semibold text-slate-100 truncate">
             {item.toolName}
           </span>
         </div>
         <div className="mt-1.5 flex items-baseline gap-1.5 text-xs tabular-nums">
           {renderTileOutcome(item)}
           <span className="text-slate-600" aria-hidden="true">·</span>
-          <span className="font-mono text-slate-400">
+          <span className="text-slate-400 tabular-nums">
             {safeCredits(item.creditsUsed).toFixed(1)} cr
           </span>
         </div>
@@ -257,7 +257,7 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({
                   : 'bg-emerald-400'
               }`}
             />
-            <h2 className="text-sm font-semibold text-white tracking-wide">Static Analysis Tools</h2>
+            <h2 className="text-sm font-semibold text-white tracking-wide">SAST Tools</h2>
             <span className="text-xs text-slate-400">
               {isRunning
                 ? `Running ${completedTools.length}/${totalTools}`
@@ -271,7 +271,7 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-3 text-xs font-mono text-slate-400">
+          <div className="flex items-center gap-3 text-xs text-slate-400 tabular-nums">
             <span>
               <strong className="text-slate-200">{totalTools}</strong> {totalTools === 1 ? 'tool' : 'tools'}
             </span>
@@ -295,7 +295,7 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({
                   <span className="w-1.5 h-1.5 rounded-full bg-red-400" aria-hidden="true" />
                   Failed ({formatGroupCount(failedGroup.length, failedAll.length)})
                 </span>
-                <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                <span className="text-[11px] text-slate-400 tabular-nums">
                   {sumGroupCredits(failedAll).toFixed(1)} cr
                 </span>
               </div>
@@ -312,7 +312,7 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse motion-reduce:animate-none" aria-hidden="true" />
                   In Progress ({formatGroupCount(inProgressGroup.length, inProgressAll.length)})
                 </span>
-                <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                <span className="text-[11px] text-slate-400 tabular-nums">
                   {activeRunningTools.length} running · {queuedTools.length} queued
                 </span>
               </div>
@@ -330,7 +330,7 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({
                     ? `Findings & Partial (${formatGroupCount(findingsGroup.length, findingsAll.length)})`
                     : `With Findings (${formatGroupCount(findingsGroup.length, findingsAll.length)})`}
                 </span>
-                <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                <span className="text-[11px] text-slate-400 tabular-nums">
                   {totalComments} {totalComments === 1 ? 'finding' : 'findings'} ·{' '}
                   {sumGroupCredits(findingsAll).toFixed(1)} cr
                 </span>
@@ -347,7 +347,7 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({
                 <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
                   Clean ({formatGroupCount(cleanGroup.length, cleanAll.length)})
                 </span>
-                <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                <span className="text-[11px] text-slate-400 tabular-nums">
                   {sumGroupCredits(cleanAll).toFixed(1)} cr
                 </span>
               </div>
@@ -364,11 +364,11 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({
                       title={`${item.toolName} · Clean · ${safeCredits(item.creditsUsed).toFixed(1)} credits`}
                     >
                       {renderStatusDot(item)}
-                      <span className="font-mono text-xs font-medium text-slate-200">
+                      <span className="text-xs font-medium text-slate-200">
                         {item.toolName}
                       </span>
                       <span className="text-slate-600 text-xs" aria-hidden="true">·</span>
-                      <span className="font-mono text-xs text-slate-400 tabular-nums">
+                      <span className="text-xs text-slate-400 tabular-nums">
                         {safeCredits(item.creditsUsed).toFixed(1)} cr
                       </span>
                     </div>
@@ -381,7 +381,7 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({
 
           {totalPages > 1 && (
             <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800/70 text-[11px]">
-              <span className="font-mono text-slate-400 tabular-nums">
+              <span className="text-slate-400 tabular-nums">
                 Showing {startIdx + 1}–{endIdx} of {totalItems} tools
               </span>
               <div className="flex items-center gap-1.5">
@@ -394,7 +394,7 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({
                 >
                   ← Prev
                 </button>
-                <span className="px-2 font-mono text-slate-300 tabular-nums">
+                <span className="px-2 text-slate-300 tabular-nums">
                   {currentPage + 1} / {totalPages}
                 </span>
                 <button

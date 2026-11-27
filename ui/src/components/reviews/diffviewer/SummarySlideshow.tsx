@@ -404,9 +404,9 @@ const SummarySlideshow: React.FC<SummarySlideshowProps> = ({
                     {pathLabel}
                   </button>
                 ) : (
-                  <code className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-[rgba(255,255,255,0.16)] bg-white/[0.035] px-3 py-[5px] text-[13px] font-semibold text-[#d8e6ff]">
+                  <span className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-[rgba(255,255,255,0.16)] bg-white/[0.035] px-3 py-[5px] text-[13px] font-semibold text-[#d8e6ff]">
                     {pathLabel}
-                  </code>
+                  </span>
                 );
               })()}
               {slide!.kind === 'label-point' && slide!.meta?.kind === 'label-point' && (

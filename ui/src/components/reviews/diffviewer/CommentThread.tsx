@@ -107,7 +107,7 @@ const CommentCard: React.FC<{
           </button>
         </div>
         <span className="font-semibold text-xs text-slate-200">Comment hidden</span>
-        <span className="text-xs text-slate-400 font-mono">{filePath}{comment.line ? `:${comment.line}` : ''}</span>
+        <span className="text-xs text-slate-400">{filePath}{comment.line ? `:${comment.line}` : ''}</span>
         <span className="text-[11px] text-slate-400">Hidden comments are excluded from Copy Visible Issues and the Claude Agent.</span>
       </div>
     );
@@ -130,14 +130,14 @@ const CommentCard: React.FC<{
           {comment.tool_name && (
             <>
               <span className="comment-tool-category-badge inline-flex items-center rounded-full border border-slate-600/60 bg-slate-800/80 px-2 py-0.5 text-[11px] font-semibold text-slate-300">
-                {comment.tool_category || comment.category || 'Static Tools'}
+                {comment.tool_category || comment.category || 'SAST Tools'}
               </span>
               <span className="comment-tool-badge inline-flex items-center rounded-full border border-[rgba(56,189,248,0.35)] bg-[rgba(56,189,248,0.15)] px-2 py-0.5 text-[11px] font-semibold text-[#38bdf8]">
                 {comment.tool_name}
               </span>
             </>
           )}
-          <span className="font-mono text-xs text-slate-400">
+          <span className="text-xs text-slate-400">
             {filePath}:{comment.line}
           </span>
           {renderLabel && (

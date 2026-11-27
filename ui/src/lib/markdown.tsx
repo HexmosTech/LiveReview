@@ -30,7 +30,7 @@ const FileChip: React.FC<{ token: { path: string; line: number }; onOpenFile: Op
     className={
       bold
         ? 'font-semibold text-sky-300 underline decoration-dotted decoration-sky-500/50 hover:text-sky-200'
-        : 'rounded-[3px] bg-white/[0.04] border border-white/10 px-1.5 py-0.5 font-mono text-[12px] text-sky-300 hover:bg-white/[0.08] hover:text-sky-200 transition-colors'
+        : 'rounded-[3px] bg-white/[0.04] border border-white/10 px-1.5 py-0.5 font-sans text-[12px] text-sky-300 hover:bg-white/[0.08] hover:text-sky-200 transition-colors'
     }
   >
     {token.path}:{token.line}
@@ -54,7 +54,7 @@ export function renderInline(text: string, keyPrefix: string, onOpenFile?: OpenF
       const token = onOpenFile ? parseFileLineToken(match[1]) : null;
       nodes.push(token
         ? <FileChip key={key} token={token} onOpenFile={onOpenFile!} />
-        : <code key={key} className="rounded-[3px] bg-[#2d2d30] px-1.5 py-0.5 font-mono text-[12px] text-[#4ec9b0]">{match[1]}</code>);
+        : <code key={key} className="rounded-[3px] border border-slate-700/60 bg-slate-800/75 px-1.5 py-0.5 font-sans text-[0.92em] font-medium text-slate-200">{match[1]}</code>);
     } else if (match[2] !== undefined) {
       const href = match[3];
       const safe = /^(https?:|mailto:)/i.test(href);

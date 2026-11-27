@@ -26,7 +26,8 @@ Any authenticated org member.
 - Navigate to a repo's [Scheduled Reviews](../reviews/scheduled-reviews.md)
   runs.
 - Open a repo's [settings](repository-settings.md) (gear icon in the Actions
-  column), e.g. to see or clear its repo cache.
+  column) to manage its repo cache, auto-approve policy, or PR-only SAST
+  tool overrides (Cloud paid plans).
 
 ## Connector error alert banners
 

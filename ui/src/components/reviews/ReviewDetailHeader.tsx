@@ -87,7 +87,7 @@ export const ReviewDetailHeader: React.FC<ReviewDetailHeaderProps> = ({
                             {review.repository.split('/').pop() || review.repository}
                         </h1>
                         {review.branch && (
-                            <p className="text-[11px] text-slate-400 font-mono leading-4 truncate">
+                            <p className="text-[11px] text-slate-400 leading-4 truncate">
                                 {review.branch}
                             </p>
                         )}
@@ -173,9 +173,9 @@ export const ReviewDetailHeader: React.FC<ReviewDetailHeaderProps> = ({
                         role="button"
                         tabIndex={0}
                         aria-expanded={toolExpanded}
-                        aria-label="Toggle static analysis tools"
+                        aria-label="Toggle SAST tools"
                         className="ml-auto shrink-0 flex items-center gap-2.5 px-3.5 self-stretch cursor-pointer group select-none hover:bg-slate-700/30 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-slate-500/60"
-                        title="Toggle static analysis tools"
+                        title="Toggle SAST tools"
                     >
                         <p className="text-xs text-slate-300 whitespace-nowrap">
                             <strong className="font-semibold text-slate-100">{effectiveToolAccounting?.toolsExecuted ?? effectiveToolAccounting?.toolBreakdown?.length ?? 0}</strong> Tools
@@ -245,12 +245,12 @@ export const ReviewDetailHeader: React.FC<ReviewDetailHeaderProps> = ({
                                                             href={`${githubBaseUrl}/commit/${encodeURIComponent(commit.ref)}`}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
-                                                            className="font-mono text-blue-400 hover:text-blue-300 hover:underline shrink-0"
+                                                            className="text-blue-400 hover:text-blue-300 hover:underline shrink-0 tabular-nums"
                                                         >
                                                             {commit.ref.substring(0, 8)}
                                                         </a>
                                                     ) : (
-                                                        <span className="font-mono text-slate-300 shrink-0">
+                                                        <span className="text-slate-300 shrink-0 tabular-nums">
                                                             {commit.refType === 'commit' ? commit.ref.substring(0, 8) : commit.ref}
                                                         </span>
                                                     )}

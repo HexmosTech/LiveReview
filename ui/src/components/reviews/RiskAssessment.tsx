@@ -169,7 +169,7 @@ export const RiskAssessmentDetails: React.FC<{ risk: RiskAssessment; connectorId
             <ul className="space-y-1.5">
               {byFile.map((f) => (
                 <li key={f.path} className="flex items-center justify-between gap-3 text-xs">
-                  <span className="truncate font-mono text-slate-300 min-w-0" title={f.path}>{f.path}</span>
+                  <span className="truncate text-slate-300 min-w-0" title={f.path}>{f.path}</span>
                   <span className={`shrink-0 font-medium ${TIER_TONE[blastRadiusTier(f.score)]}`}>{Math.round(f.score)}</span>
                 </li>
               ))}

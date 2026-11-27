@@ -1,4 +1,4 @@
-# Settings → Third-Party Tools
+# Settings → SAST Tools
 
 **Route:** `/settings#third-party-tools`
 **Component:** `ui/src/pages/Settings/ThirdPartyToolsTab.tsx`
@@ -6,16 +6,16 @@
 
 ## Purpose
 
-Enables and configures third-party static analysis tools (linters, security scanners, and formatters) to run concurrently as parallel AWS Lambda worker jobs alongside AI reviews.
+Enables and configures SAST static analysis tools (linters, security scanners, and formatters) to run concurrently as parallel AWS Lambda worker jobs alongside AI reviews.
 
 Findings produced by enabled tools are normalized through the 3-tier taxonomy classification system, stored as `tool_result` events in `review_events`, and rendered directly within review findings, review summary comments, and the CLI (`lrc`).
 
 ## Cloud-Only Architecture
 
-Third-Party Static Analysis Tools is strictly a **Cloud-only feature** (`isCloudMode()`):
+SAST Tools is strictly a **Cloud-only feature** (`isCloudMode()`):
 
 - The Settings tab is visible only in LiveReview Cloud (`isCloudMode()`).
-- Backend endpoints (`GET /api/v1/orgs/:org_id/tools` and `PUT /api/v1/orgs/:org_id/tools/:tool_id`) enforce cloud mode via `s.deploymentConfig.IsCloud`. If invoked on self-hosted instances, the server rejects requests with `403 Forbidden` (`{"error": "Third-party tools are only available in cloud mode"}`).
+- Backend endpoints (`GET /api/v1/orgs/:org_id/tools` and `PUT /api/v1/orgs/:org_id/tools/:tool_id`) enforce cloud mode via `s.deploymentConfig.IsCloud`. If invoked on self-hosted instances, the server rejects requests with `403 Forbidden` (`{"error": "SAST tools are only available in cloud mode"}`).
 - Tool executions are orchestrated as isolated AWS Lambda functions managed by the LiveReview Cloud worker fleet.
 
 ## Supported Launch Tools
@@ -42,11 +42,11 @@ The platform provides 15 supported launch tools (catalog IDs 1–15):
 
 ## Scoping & Configuration Hierarchy
 
-Tool execution follows strict organization and repository scoping guardrails:
+Tool execution follows a layered configuration hierarchy:
 
-- **Organization Level (Authority)**: Organization Owners (and Super Admins) have authoritative control over which tools are enabled for the organization. Tool enablement is toggled in this tab and persisted in `orgs.settings->'tools'`.
-- **Repository Level (`.lrc/policy/tools.toml`)**: Individual repositories can include a `.lrc/policy/tools.toml` file to fine-tune tool execution, define diff pattern matchers, or opt out of specific tools.
-- **Enforcement Guardrail**: Repository-level configuration can **only tune or disable tools that are already enabled at the organization level**. A repository **can never force-enable a tool that is disabled at the organization level**. Org-level disabling acts as an absolute administrative boundary.
+- **Organization Default (`orgs.settings->'tools'`)**: Organization Owners (and Super Admins) configure default enabled tools in this tab.
+- **Repository UI Override (`repositories.settings->'tools'`, PR reviews only)**: From [Explore → Repository Settings](../explore/repository-settings.md), owners can set a repository to either **Inherit organization default** (`mode: "inherit"`) or **Custom for this repository** (`mode: "custom"`). Repository UI overrides apply **only on PR/MR reviews** (managed via `GET/PUT /api/v1/repositories/:repoId/tools`); CLI (`lrc review`) and scheduled branch reviews do not use repository UI overrides.
+- **In-Repo Policy File (`.lrc/policy/tools.toml`)**: Repositories can also include `.lrc/policy/tools.toml` to enable/disable individual tools or scope them with `include`/`exclude` file matchers. On PR reviews, `.lrc/policy/tools.toml` overlays on top of the active repository/org baseline.
 
 ## Credit Pool & Multiplier Model
 
@@ -69,4 +69,4 @@ Tool execution consumes credits from the organization's monthly credit pool (def
 
 ## Related Pages
 
-[Settings Overview](settings-overview.md), [Plan & Usage](plan-and-usage.md), [Integrations](integrations.md), [Review Detail](../reviews/review-detail.md)
+[Settings Overview](settings-overview.md), [Repository Settings](../explore/repository-settings.md), [Plan & Usage](plan-and-usage.md), [Integrations](integrations.md), [Review Detail](../reviews/review-detail.md)

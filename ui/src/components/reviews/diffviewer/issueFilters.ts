@@ -102,7 +102,7 @@ export function getCommentToolLabel(comment: DiffReviewComment): string {
     return comment.tool_name.trim();
   }
   if (comment.source && comment.source.trim().toLowerCase() === 'tool') {
-    return 'Static Analysis';
+    return 'SAST Tools';
   }
   return 'AI Review';
 }

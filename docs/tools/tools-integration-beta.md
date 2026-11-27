@@ -19,7 +19,7 @@ The system includes the following operational components:
 - The **Tool Analysis Card** (`ui/src/components/reviews/ToolAnalysisCard.tsx`) renders on the `ReviewDetail` page.
 - Database migration `20261102221500_create_tools_integration.sql` establishes credit counters, rule taxonomies, and audit ledgers.
 - The global tool catalog stores configurations in `system_settings` under the key `tools_catalog` with 15 launch tools.
-- Per-organization tool settings persist directly inside `orgs.settings->'tools'`.
+- Per-organization tool settings persist directly inside `orgs.settings->'tools'`, and per-repository PR-only overrides persist in `repositories.settings->'tools'`.
 - The `River` job queue executes tools concurrently with `ToolReviewWorker` under the `tool_review` job kind.
 - The shared `ToolDispatcher` (`internal/jobqueue/tool_dispatcher.go`) evaluates permissions, diff file patterns, and credit preflights.
 - AWS Lambda functions execute containerized linters and return normalized JSON payloads.
@@ -42,7 +42,7 @@ flowchart TD
     B -->|No| C["Run AI Review Only<br/>(Tools Skipped)"]
     B -->|Yes| D["Shared ToolDispatcher<br/>(internal/jobqueue)"]
     
-    D --> E["Load Org Enabled Tools &<br/>Merge .lrc/policy/tools.toml"]
+    D --> E["Load Org/Repo Settings (PR only) &<br/>Merge .lrc/policy/tools.toml"]
     E --> F["Match Changed File Extensions<br/>(Filter Inapplicable Tools)"]
     F --> G{"Any Tools Active?"}
     G -->|No| C
@@ -279,7 +279,7 @@ LiveReview tracks static tool findings and classifications based on the canonica
 
 | Stage | Responsibility | Inputs | Outputs | Failure Mode / Resilience | Ownership |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **1. Selection & Execution** | Evaluate permissions, check org allowlist, verify credit balance, package diff (<= 6 MB) | Review context, diff files, org settings, `.lrc/policy/tools.toml` | Dispatched tool list, packaged base64 zip | Insufficient credits -> skip tools; unreadable files -> skip gracefully | LiveReview Backend (`ToolDispatcher`) |
+| **1. Selection & Execution** | Evaluate permissions, check org/repo baseline (PR-only repo override), verify credit balance, package diff (<= 6 MB) | Review context, diff files, org/repo settings, `.lrc/policy/tools.toml` | Dispatched tool list, packaged base64 zip | Insufficient credits -> skip tools; unreadable files -> skip gracefully | LiveReview Backend (`ToolDispatcher`) |
 | **2. Output Collection** | Execute containerized scanner, capture stdout, stderr, exit code, and runtime duration | Packaged diff zip, tool name, config args | Raw stdout, stderr, exit code, execution duration | Timeout / OOM -> exit code > 1, stderr logged | Lambda Runner (`lr-tools`) |
 | **3. Parsing & Validation** | Parse scanner CLI output; redact secrets and credentials (`Match: REDACTED`) | Raw stdout/stderr, exit code | Parsed tool payload (status, findings array, error string) | JSON parse error -> status `failed`, error string; findings empty | Lambda Runner (`lr-tools`) |
 | **4. Normalization** | Transform tool-specific findings into normalized `RawToolFinding` format | Tool-specific findings JSON | Normalized findings (file relative to root, line, col, rule, message, evidence) | Malformed item skipped; non-blocking | Lambda Runner (`lr-tools`) |

@@ -2793,6 +2793,7 @@ CREATE TABLE public.repositories (
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    settings jsonb DEFAULT '{}'::jsonb NOT NULL,
     CONSTRAINT repositories_last_sync_status_check CHECK ((last_sync_status = ANY (ARRAY['pending'::text, 'ok'::text, 'error'::text])))
 );
 
@@ -2816,6 +2817,13 @@ COMMENT ON COLUMN public.repositories.provider_repo_id IS 'Stable external repos
 --
 
 COMMENT ON COLUMN public.repositories.last_sync_status IS 'Outcome of the most recent sync attempt for this repository.';
+
+
+--
+-- Name: COLUMN repositories.settings; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.repositories.settings IS 'User-configured per-repository behavioral preferences (e.g. PR-only static analysis tool overrides under settings->''tools'').';
 
 
 --

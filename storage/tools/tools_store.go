@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -84,9 +85,74 @@ func (s *ToolsStore) LoadCatalog(ctx context.Context) ([]AvailableTool, error) {
 	return nil, nil
 }
 
+const (
+	RepoToolModeInherit = "inherit"
+	RepoToolModeCustom  = "custom"
+)
+
 type OrgToolConfig struct {
 	Enabled    bool            `json:"enabled"`
 	ConfigJSON json.RawMessage `json:"config_json,omitempty"`
+}
+
+// RepoToolRuleConfig represents per-tool file filter rules stored inside OrgToolConfig.ConfigJSON.
+type RepoToolRuleConfig struct {
+	Include []string `json:"include,omitempty"`
+	Exclude []string `json:"exclude,omitempty"`
+}
+
+type RepoToolSettings struct {
+	Mode  string                   `json:"mode"`
+	Tools map[string]OrgToolConfig `json:"tools,omitempty"`
+}
+
+type RepoToolView struct {
+	AvailableTool
+	Enabled     bool            `json:"enabled"`
+	OrgEnabled  bool            `json:"org_enabled"`
+	RepoEnabled *bool           `json:"repo_enabled,omitempty"`
+	ConfigJSON  json.RawMessage `json:"config_json"`
+}
+
+func parseToolConfigMap(rawMap map[string]interface{}) map[string]OrgToolConfig {
+	settingsMap := make(map[string]OrgToolConfig, len(rawMap))
+	for k, v := range rawMap {
+		lowerK := strings.ToLower(k)
+		if b, ok := v.(bool); ok {
+			settingsMap[lowerK] = OrgToolConfig{
+				Enabled:    b,
+				ConfigJSON: json.RawMessage("{}"),
+			}
+		} else if m, ok := v.(map[string]interface{}); ok {
+			cfg := OrgToolConfig{ConfigJSON: json.RawMessage("{}")}
+			if eb, ok := m["enabled"].(bool); ok {
+				cfg.Enabled = eb
+			}
+			if cj, ok := m["config_json"]; ok {
+				if cjBytes, err := json.Marshal(cj); err == nil {
+					cfg.ConfigJSON = json.RawMessage(cjBytes)
+				}
+			}
+			settingsMap[lowerK] = cfg
+		}
+	}
+	return settingsMap
+}
+
+func lookupToolConfig(settingsMap map[string]OrgToolConfig, t AvailableTool) (OrgToolConfig, bool) {
+	return LookupToolConfig(settingsMap, t)
+}
+
+// LookupToolConfig resolves a tool entry in a repo/org settings map by lowercase name or numeric ID.
+func LookupToolConfig(settingsMap map[string]OrgToolConfig, t AvailableTool) (OrgToolConfig, bool) {
+	if len(settingsMap) == 0 {
+		return OrgToolConfig{}, false
+	}
+	if cfg, ok := settingsMap[strings.ToLower(t.Name)]; ok {
+		return cfg, true
+	}
+	cfg, ok := settingsMap[fmt.Sprintf("%d", t.ID)]
+	return cfg, ok
 }
 
 // GetAvailableToolsForOrg lists all available tools from the catalog, annotated with the org's enabling configuration from orgs.settings.
@@ -100,11 +166,7 @@ func (s *ToolsStore) GetAvailableToolsForOrg(ctx context.Context, orgID int64) (
 
 	views := make([]OrgToolView, len(catalog))
 	for i, t := range catalog {
-		lowerName := strings.ToLower(t.Name)
-		cfg, ok := toolSettings[lowerName]
-		if !ok {
-			cfg = toolSettings[fmt.Sprintf("%d", t.ID)]
-		}
+		cfg, _ := lookupToolConfig(toolSettings, t)
 		if len(cfg.ConfigJSON) == 0 {
 			cfg.ConfigJSON = json.RawMessage("{}")
 		}
@@ -132,28 +194,253 @@ func (s *ToolsStore) getOrgToolSettings(ctx context.Context, orgID int64) map[st
 
 	var rawMap map[string]interface{}
 	if err := json.Unmarshal(settingsJSON, &rawMap); err == nil {
-		for k, v := range rawMap {
-			lowerK := strings.ToLower(k)
-			if b, ok := v.(bool); ok {
-				settingsMap[lowerK] = OrgToolConfig{
-					Enabled:    b,
-					ConfigJSON: json.RawMessage("{}"),
-				}
-			} else if m, ok := v.(map[string]interface{}); ok {
-				cfg := OrgToolConfig{ConfigJSON: json.RawMessage("{}")}
-				if eb, ok := m["enabled"].(bool); ok {
-					cfg.Enabled = eb
-				}
-				if cj, ok := m["config_json"]; ok {
-					if cjBytes, err := json.Marshal(cj); err == nil {
-						cfg.ConfigJSON = json.RawMessage(cjBytes)
-					}
-				}
-				settingsMap[lowerK] = cfg
+		return parseToolConfigMap(rawMap)
+	}
+	return settingsMap
+}
+
+func parseRepoToolSettingsJSON(settingsJSON []byte) (RepoToolSettings, error) {
+	res := RepoToolSettings{
+		Mode:  RepoToolModeInherit,
+		Tools: map[string]OrgToolConfig{},
+	}
+	if len(settingsJSON) == 0 {
+		return res, nil
+	}
+
+	var raw struct {
+		Mode  string                 `json:"mode"`
+		Tools map[string]interface{} `json:"tools"`
+	}
+	if err := json.Unmarshal(settingsJSON, &raw); err != nil {
+		return RepoToolSettings{}, fmt.Errorf("unmarshal repository tool settings: %w", err)
+	}
+	if strings.EqualFold(strings.TrimSpace(raw.Mode), RepoToolModeCustom) {
+		res.Mode = RepoToolModeCustom
+	}
+	if len(raw.Tools) > 0 {
+		res.Tools = parseToolConfigMap(raw.Tools)
+	}
+	return res, nil
+}
+
+// GetRepoToolSettings loads the repository-level static analysis override settings
+// from repositories.settings->'tools', scoped strictly to orgID.
+func (s *ToolsStore) GetRepoToolSettings(ctx context.Context, orgID, repoID int64) (RepoToolSettings, error) {
+	if s.db == nil || repoID <= 0 {
+		return RepoToolSettings{
+			Mode:  RepoToolModeInherit,
+			Tools: map[string]OrgToolConfig{},
+		}, nil
+	}
+
+	var settingsJSON []byte
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT settings->'tools' FROM public.repositories WHERE id = $1 AND org_id = $2`,
+		repoID, orgID,
+	).Scan(&settingsJSON)
+	if err != nil {
+		return RepoToolSettings{}, err
+	}
+	return parseRepoToolSettingsJSON(settingsJSON)
+}
+
+// GetAvailableToolsForRepo returns the catalog annotated with both org default state
+// and repository-level overrides for a given repository in orgID.
+func (s *ToolsStore) GetAvailableToolsForRepo(ctx context.Context, orgID, repoID int64) (string, []RepoToolView, error) {
+	repoSettings, err := s.GetRepoToolSettings(ctx, orgID, repoID)
+	if err != nil {
+		return "", nil, err
+	}
+
+	catalog, err := s.LoadCatalog(ctx)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to load tools catalog: %w", err)
+	}
+
+	orgSettings := s.getOrgToolSettings(ctx, orgID)
+
+	views := make([]RepoToolView, len(catalog))
+	for i, t := range catalog {
+		orgCfg, _ := lookupToolConfig(orgSettings, t)
+		repoCfg, hasRepo := lookupToolConfig(repoSettings.Tools, t)
+
+		effective := orgCfg.Enabled
+		if repoSettings.Mode == RepoToolModeCustom {
+			effective = hasRepo && repoCfg.Enabled
+		}
+
+		var repoEnabled *bool
+		if hasRepo {
+			v := repoCfg.Enabled
+			repoEnabled = &v
+		}
+
+		cfgJSON := orgCfg.ConfigJSON
+		if hasRepo && len(repoCfg.ConfigJSON) > 0 {
+			cfgJSON = repoCfg.ConfigJSON
+		}
+		if len(cfgJSON) == 0 {
+			cfgJSON = json.RawMessage("{}")
+		}
+
+		views[i] = RepoToolView{
+			AvailableTool: t,
+			Enabled:       effective,
+			OrgEnabled:    orgCfg.Enabled,
+			RepoEnabled:   repoEnabled,
+			ConfigJSON:    cfgJSON,
+		}
+	}
+	return repoSettings.Mode, views, nil
+}
+
+func cleanGlobs(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, g := range in {
+		if trimmed := strings.TrimSpace(g); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+// UpsertRepoToolSettings persists per-repository tool mode ('inherit' or 'custom')
+// and optional explicit tool map into repositories.settings->'tools', scoped to orgID.
+func (s *ToolsStore) UpsertRepoToolSettings(ctx context.Context, orgID, repoID int64, mode string, toolStates map[string]bool) (RepoToolSettings, error) {
+	return s.UpsertRepoToolSettingsWithConfigs(ctx, orgID, repoID, mode, toolStates, nil)
+}
+
+// UpsertRepoToolSettingsWithConfigs persists per-repository tool mode, enabled map,
+// and optional per-tool filter configs (include/exclude) into repositories.settings->'tools'.
+func (s *ToolsStore) UpsertRepoToolSettingsWithConfigs(ctx context.Context, orgID, repoID int64, mode string, toolStates map[string]bool, toolConfigs map[string]RepoToolRuleConfig) (RepoToolSettings, error) {
+	normalizedMode := strings.ToLower(strings.TrimSpace(mode))
+	if normalizedMode != RepoToolModeInherit && normalizedMode != RepoToolModeCustom {
+		return RepoToolSettings{}, fmt.Errorf("invalid mode %q: must be %q or %q", mode, RepoToolModeInherit, RepoToolModeCustom)
+	}
+	if s.db == nil || repoID <= 0 {
+		return RepoToolSettings{}, errors.New("valid repository and database connection are required")
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return RepoToolSettings{}, fmt.Errorf("begin repository tool settings transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var settingsJSON []byte
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT settings->'tools' FROM public.repositories WHERE id = $1 AND org_id = $2 FOR UPDATE`,
+		repoID, orgID,
+	).Scan(&settingsJSON); err != nil {
+		return RepoToolSettings{}, err
+	}
+	existing, err := parseRepoToolSettingsJSON(settingsJSON)
+	if err != nil {
+		return RepoToolSettings{}, err
+	}
+
+	nextTools := make(map[string]OrgToolConfig, len(existing.Tools))
+	for k, v := range existing.Tools {
+		nextTools[k] = v
+	}
+
+	var normalizedConfigs map[string]RepoToolRuleConfig
+	if toolConfigs != nil {
+		normalizedConfigs = make(map[string]RepoToolRuleConfig, len(toolConfigs))
+		for k, v := range toolConfigs {
+			normalizedConfigs[strings.ToLower(strings.TrimSpace(k))] = RepoToolRuleConfig{
+				Include: cleanGlobs(v.Include),
+				Exclude: cleanGlobs(v.Exclude),
 			}
 		}
 	}
-	return settingsMap
+
+	if toolStates != nil || normalizedConfigs != nil {
+		catalog, catErr := s.LoadCatalog(ctx)
+		if catErr != nil {
+			return RepoToolSettings{}, fmt.Errorf("failed to load tools catalog: %w", catErr)
+		}
+		normalizedInput := make(map[string]bool, len(toolStates))
+		for k, v := range toolStates {
+			normalizedInput[strings.ToLower(strings.TrimSpace(k))] = v
+		}
+		// Rebuild when custom states are explicitly supplied so tools omitted from
+		// the custom selection snapshot do not keep stale enabled flags.
+		if normalizedMode == RepoToolModeCustom || len(normalizedInput) > 0 {
+			nextTools = make(map[string]OrgToolConfig, len(catalog))
+			for _, t := range catalog {
+				lowerName := strings.ToLower(t.Name)
+				idKey := fmt.Sprintf("%d", t.ID)
+				prevCfg, _ := lookupToolConfig(existing.Tools, t)
+				cfgJSON := prevCfg.ConfigJSON
+				if len(cfgJSON) == 0 {
+					cfgJSON = json.RawMessage("{}")
+				}
+				if normalizedConfigs != nil {
+					rc, hasRC := normalizedConfigs[lowerName]
+					if !hasRC {
+						rc, hasRC = normalizedConfigs[idKey]
+					}
+					if hasRC && (len(rc.Include) > 0 || len(rc.Exclude) > 0) {
+						if b, mErr := json.Marshal(rc); mErr == nil {
+							cfgJSON = b
+						}
+					} else {
+						cfgJSON = json.RawMessage("{}")
+					}
+				}
+				enabled := prevCfg.Enabled
+				if toolStates != nil {
+					var ok bool
+					enabled, ok = normalizedInput[lowerName]
+					if !ok {
+						enabled = normalizedInput[idKey]
+					}
+				}
+				nextTools[lowerName] = OrgToolConfig{
+					Enabled:    enabled,
+					ConfigJSON: cfgJSON,
+				}
+			}
+		}
+	}
+
+	updated := RepoToolSettings{
+		Mode:  normalizedMode,
+		Tools: nextTools,
+	}
+	payloadBytes, err := json.Marshal(updated)
+	if err != nil {
+		return RepoToolSettings{}, fmt.Errorf("marshal repo tool settings: %w", err)
+	}
+
+	res, err := tx.ExecContext(ctx, `
+		UPDATE public.repositories
+		SET settings = jsonb_set(
+			COALESCE(settings, '{}'::jsonb),
+			'{tools}',
+			$3::jsonb
+		),
+		updated_at = now()
+		WHERE id = $1 AND org_id = $2
+	`, repoID, orgID, payloadBytes)
+	if err != nil {
+		return RepoToolSettings{}, fmt.Errorf("failed to update repository tool settings: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return RepoToolSettings{}, fmt.Errorf("check rows affected for repository tool settings: %w", err)
+	}
+	if n == 0 {
+		return RepoToolSettings{}, sql.ErrNoRows
+	}
+	if err := tx.Commit(); err != nil {
+		return RepoToolSettings{}, fmt.Errorf("commit repository tool settings: %w", err)
+	}
+	return updated, nil
 }
 
 // UpsertOrgTool inserts or updates the enabling configuration of a tool for a specific organization in orgs.settings.

@@ -57,7 +57,7 @@ export const ToolsUsageWidget: React.FC = () => {
         <div className="h-full flex flex-col justify-between text-xs">
             <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-700/60">
                 <div>
-                    <span className="font-semibold text-slate-200 text-sm">Static Analysis Tools</span>
+                    <span className="font-semibold text-slate-200 text-sm">SAST Tools</span>
                     <p className="text-[11px] text-slate-400">
                         {loading
                             ? 'Loading tool configuration...'
@@ -88,7 +88,7 @@ export const ToolsUsageWidget: React.FC = () => {
                             className="flex items-center justify-between rounded bg-slate-900/60 border border-slate-800 px-2.5 py-1.5"
                         >
                             <div className="flex items-center gap-2 min-w-0">
-                                <span className="font-mono font-semibold text-white">{tool.name}</span>
+                                <span className="font-semibold text-white">{tool.name}</span>
                                 {(tool.category || tool.use_case) && (
                                     <span className="text-[11px] text-slate-400 truncate hidden sm:inline">
                                         ({tool.category || tool.use_case})
@@ -97,8 +97,8 @@ export const ToolsUsageWidget: React.FC = () => {
                             </div>
 
                             <div className="flex items-center gap-2 shrink-0">
-                                <span className="font-mono text-[10px] text-slate-400">{Number(tool.multiplier || 0).toFixed(1)}×</span>
-                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border bg-slate-800 text-emerald-300 border-emerald-700/50">
+                                <span className="text-[10px] text-slate-400 tabular-nums">{Number(tool.multiplier || 0).toFixed(1)}×</span>
+                                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border bg-slate-800 text-emerald-300 border-emerald-700/50">
                                     Enabled
                                 </span>
                             </div>
