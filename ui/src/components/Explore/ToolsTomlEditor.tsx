@@ -559,15 +559,31 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
 
   const openPopup = (tool: RepoToolView | null = null, anchorEl?: HTMLElement | null) => {
     if (!canEdit || saving) return;
+    const viewportW = typeof window !== 'undefined' ? window.innerWidth : 1200;
+    const viewportH = typeof window !== 'undefined' ? window.innerHeight : 800;
     if (anchorEl) {
       const rect = anchorEl.getBoundingClientRect();
-      setPopupState({ point: { x: rect.left, y: rect.bottom + 6 }, tool });
+      setPopupState({
+        point: {
+          x: Math.max(12, Math.min(rect.left, viewportW - 12)),
+          y: Math.max(12, Math.min(rect.bottom + 6, viewportH - 12)),
+        },
+        tool,
+      });
       return;
     }
     const el = textareaRef.current;
     if (el) {
       el.focus();
-      setPopupState({ point: getCaretScreenPoint(el), tool });
+      const elRect = el.getBoundingClientRect();
+      const pt = getCaretScreenPoint(el);
+      setPopupState({
+        point: {
+          x: Math.max(12, Math.min(pt.x, viewportW - 12)),
+          y: Math.max(Math.max(12, elRect.top + 24), Math.min(pt.y, Math.min(elRect.bottom, viewportH - 12))),
+        },
+        tool,
+      });
     } else {
       setPopupState({ point: { x: 100, y: 200 }, tool });
     }
@@ -683,7 +699,7 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
             <button
               type="button"
               disabled={!canEdit || saving}
-              onClick={() => openPopup(null)}
+              onClick={(e) => openPopup(null, e.currentTarget)}
               className="inline-flex items-center rounded-md border border-slate-600 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed text-slate-100 overflow-hidden transition-colors"
             >
               <span className="flex items-center gap-1.5 px-3 py-1.5 text-sm">
