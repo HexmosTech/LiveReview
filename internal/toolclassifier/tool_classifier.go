@@ -15,6 +15,8 @@ import (
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/aiselection"
 	"github.com/livereview/internal/license"
+	"github.com/livereview/internal/llm/adaptivelimiter"
+	"github.com/livereview/internal/llm/errclass"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
@@ -98,6 +100,7 @@ func ClassifyToolResult(
 				Type:        NormalizeType(tuple.Type),
 				Source:      "tool",
 				ToolName:    toolName,
+				RuleID:      finding.Rule,
 			}
 			if logger != nil {
 				logger.Log("[TOOL %s] Deterministic classification (0 tokens) for rule %s: %s / %s", toolName, finding.Rule, cat, subcat)
@@ -115,6 +118,7 @@ func ClassifyToolResult(
 				Type:        NormalizeType(tuple.Type),
 				Source:      "tool",
 				ToolName:    toolName,
+				RuleID:      finding.Rule,
 			}
 			if logger != nil {
 				logger.Log("[TOOL %s] Deterministic classification (0 tokens) for rule %s: %s / %s", toolName, finding.Rule, cat, subcat)
@@ -172,6 +176,7 @@ func ClassifyToolResult(
 						Type:        NormalizeType(tuple.Type),
 						Source:      "tool",
 						ToolName:    toolName,
+						RuleID:      f.Rule,
 					}
 					if logger != nil {
 						logger.Log("[TOOL %s] Database cache classification (0 tokens) for rule %s: %s / %s", toolName, f.Rule, cat, subcat)
@@ -212,11 +217,11 @@ func ClassifyToolResult(
 
 	prompt := BuildClassifierPrompt(uniqueRuleKeys, ruleToIndices, findings)
 
-	options, _, err := connectorOptionsFromAIConfig(leaderConfig, len(uniqueRuleKeys))
+	options, providerName, err := connectorOptionsFromAIConfig(leaderConfig, len(uniqueRuleKeys))
 	if err == nil {
 		connector, connErr := aiconnectors.NewConnector(ctx, options)
 		if connErr == nil {
-			respStr, inputTokens, outputTokens, callErr := connector.CallWithUsage(ctx, prompt)
+			respStr, inputTokens, outputTokens, callErr := callClassifierWithLimiter(ctx, connector, string(options.Provider), providerName, prompt)
 			if callErr == nil {
 				fmt.Printf("[INFO] [TOOL %s] Taxonomy LLM classification token usage: %d input tokens, %d output tokens (%d total LLM tokens)\n", toolName, inputTokens, outputTokens, inputTokens+outputTokens)
 				if logger != nil {
@@ -248,6 +253,7 @@ func ClassifyToolResult(
 									Type:        typ,
 									Source:      "tool",
 									ToolName:    toolName,
+									RuleID:      findings[origIdx].Rule,
 								}
 							}
 						}
@@ -284,6 +290,37 @@ func ClassifyToolResult(
 	}
 
 	return applyFallbackComments(toolName, findings, comments, unresolvedIndices), nil
+}
+
+func callClassifierWithLimiter(
+	ctx context.Context,
+	connector *aiconnectors.Connector,
+	providerType, providerName, prompt string,
+) (string, int, int, error) {
+	limiterKey := providerType + ":" + providerName
+	if providerType == "gemini" && providerName == "" {
+		limiterKey = "gemini"
+	}
+	connectorLimiter := adaptivelimiter.ForConnector(
+		limiterKey,
+		adaptivelimiter.Config{Floor: 2, Ceiling: 64, Initial: 16},
+	)
+	release, acqErr := connectorLimiter.Acquire(ctx)
+	if acqErr != nil {
+		return "", 0, 0, fmt.Errorf("acquire classifier limiter slot: %w", acqErr)
+	}
+	defer release()
+
+	respStr, inputTokens, outputTokens, callErr := connector.CallWithUsage(ctx, prompt)
+	switch {
+	case callErr == nil:
+		connectorLimiter.ReportSuccess()
+	case errclass.Classify(providerType, callErr) == errclass.RateLimited:
+		connectorLimiter.ReportRateLimited()
+	default:
+		connectorLimiter.ReportOther()
+	}
+	return respStr, inputTokens, outputTokens, callErr
 }
 
 // BuildClassifierPrompt constructs the hyper-minified taxonomy classification prompt
@@ -355,6 +392,7 @@ func applyFallbackComments(toolName string, findings []RawToolFinding, comments 
 				Type:        "Technical Debt",
 				Source:      "tool",
 				ToolName:    toolName,
+				RuleID:      findings[origIdx].Rule,
 			}
 		}
 	}

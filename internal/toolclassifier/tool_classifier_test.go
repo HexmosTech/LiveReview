@@ -923,3 +923,49 @@ func TestUnknownRuleSafeFallbackState(t *testing.T) {
 		t.Errorf("unknown rule fallback should have Low confidence, got %s", c.Confidence)
 	}
 }
+
+func TestClassifyToolResult_FallbackNeverCachedInDB(t *testing.T) {
+	resetMockDriver()
+	defer resetMockDriver()
+
+	var cacheMu sync.Mutex
+	var cacheWrites int
+	testMockDriver.queryHandler = func(query string, args []driver.NamedValue) (driver.Rows, error) {
+		return &mockRows{
+			columns: []string{"rule_key", "category", "subcategory", "severity", "confidence", "type"},
+			rows:    [][]driver.Value{},
+		}, nil
+	}
+	testMockDriver.execHandler = func(query string, args []driver.NamedValue) (driver.Result, error) {
+		if strings.Contains(query, "tool_rule_taxonomies") {
+			cacheMu.Lock()
+			cacheWrites++
+			cacheMu.Unlock()
+		}
+		return mockResult{rowsAffected: 1}, nil
+	}
+
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	findings := []RawToolFinding{
+		{File: "main.go", Line: 10, Rule: "brand-new-transient-rule", Message: "Something flagged"},
+	}
+	comments, err := ClassifyToolResult(canceledCtx, testDB, 1, license.PlanTeam, "newlinter", findings, nil)
+	if err != nil {
+		t.Fatalf("expected nil error with fallback, got: %v", err)
+	}
+	if len(comments) != 1 || comments[0] == nil || comments[0].RuleID != "brand-new-transient-rule" {
+		t.Fatalf("expected fallback comment preserving RuleID, got: %+v", comments)
+	}
+	if comments[0].Category != "Maintainability" || comments[0].Subcategory != "Technical Debt" {
+		t.Fatalf("expected fallback taxonomy Maintainability/Technical Debt, got %s/%s", comments[0].Category, comments[0].Subcategory)
+	}
+	time.Sleep(50 * time.Millisecond)
+	cacheMu.Lock()
+	writes := cacheWrites
+	cacheMu.Unlock()
+	if writes != 0 {
+		t.Fatalf("expected ZERO Tier-2 DB cache writes for fallback classifications, got %d", writes)
+	}
+}

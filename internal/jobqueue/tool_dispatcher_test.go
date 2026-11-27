@@ -47,6 +47,8 @@ type mockDBState struct {
 	idempotencyKey      string
 
 	dispatchEvents      []string
+	resultEvents        []string
+	priorReviewEvents   [][]driver.Value
 	metaDispatchedCount int
 	toolsCatalog        []storagetools.AvailableTool
 }
@@ -241,6 +243,15 @@ func (c *mockDBConn) QueryContext(ctx context.Context, query string, args []driv
 		}, nil
 	}
 
+	// 2. review_events (prior execution / retry hydration lookup)
+	if strings.Contains(query, "FROM public.review_events") {
+		rows := state.priorReviewEvents
+		return &mockRows{
+			columns: []string{"event_type", "batch_id", "data"},
+			rows:    rows,
+		}, nil
+	}
+
 	return nil, fmt.Errorf("unhandled query in mock: %s", query)
 }
 
@@ -273,18 +284,32 @@ func (c *mockDBConn) ExecContext(ctx context.Context, query string, args []drive
 		return mockResult{rowsAffected: 1}, nil
 	}
 
-	// 2. INSERT INTO review_events
+	// 2. INSERT INTO / UPDATE review_events
 	if strings.Contains(query, "review_events") {
 		if state.failReviewEvents {
 			return nil, errors.New("failed to insert review event")
 		}
-		for _, arg := range args {
-			if arg.Ordinal == 3 {
-				switch v := arg.Value.(type) {
-				case []byte:
-					state.dispatchEvents = append(state.dispatchEvents, string(v))
-				case string:
-					state.dispatchEvents = append(state.dispatchEvents, v)
+		if strings.Contains(query, "INSERT INTO") && strings.Contains(query, "'tool_dispatch'") {
+			for _, arg := range args {
+				if arg.Ordinal == 3 {
+					switch v := arg.Value.(type) {
+					case []byte:
+						state.dispatchEvents = append(state.dispatchEvents, string(v))
+					case string:
+						state.dispatchEvents = append(state.dispatchEvents, v)
+					}
+				}
+			}
+		}
+		if strings.Contains(query, "INSERT INTO") && strings.Contains(query, "'tool_result'") {
+			for _, arg := range args {
+				if arg.Ordinal == 3 {
+					switch v := arg.Value.(type) {
+					case []byte:
+						state.resultEvents = append(state.resultEvents, string(v))
+					case string:
+						state.resultEvents = append(state.resultEvents, v)
+					}
 				}
 			}
 		}
@@ -855,7 +880,7 @@ func TestDispatchTools_D6_DeductCreditsFailureAbortsExecution(t *testing.T) {
 	}
 }
 
-// D7: Failure in QueueToolReviewJob logs error and continues with remaining tools.
+// D7: Inline tool execution does not enqueue River tool_review jobs, so closing jq.pool does not block dispatch.
 func TestDispatchTools_D7_QueueToolReviewJobFailure(t *testing.T) {
 	t.Setenv("LIVEREVIEW_IS_CLOUD", "true")
 	ctx := context.Background()
@@ -866,7 +891,7 @@ func TestDispatchTools_D7_QueueToolReviewJobFailure(t *testing.T) {
 
 	jq := createTestJobQueue(t, mockDB)
 
-	// Close the job queue connection pool so QueueToolReviewJob fails on insert
+	// Close the job queue connection pool: inline execution must not depend on River queueing.
 	if jq.pool != nil {
 		jq.pool.Close()
 	}
@@ -881,17 +906,16 @@ func TestDispatchTools_D7_QueueToolReviewJobFailure(t *testing.T) {
 	}
 
 	count, err := jq.DispatchTools(ctx, params)
-	// DispatchTools logs the queue error and continues gracefully
 	if err != nil {
-		t.Fatalf("expected nil error from DispatchTools when queueing fails, got %v", err)
+		t.Fatalf("expected nil error from DispatchTools with closed pool, got %v", err)
 	}
-	if count != 0 {
-		t.Fatalf("expected 0 tools successfully dispatched since queue failed, got %d", count)
+	if count != 1 {
+		t.Fatalf("expected 1 inline tool dispatched without River queue pool, got %d", count)
 	}
 
-	// But credits were still deducted (documented behavior: deduction succeeds before fanout)
+	// Credits were still deducted before tool execution.
 	if len(state.ledgerBreakdown) != 1 {
-		t.Fatalf("expected credit deduction to have occurred before queueing, got breakdown: %+v", state.ledgerBreakdown)
+		t.Fatalf("expected credit deduction to have occurred, got breakdown: %+v", state.ledgerBreakdown)
 	}
 }
 

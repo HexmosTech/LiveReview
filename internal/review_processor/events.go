@@ -781,6 +781,7 @@ func (r *ReviewEventsRepo) GetToolSummary(ctx context.Context, reviewID, orgID i
 	}
 
 	dispatchedMap := make(map[string]time.Time)
+	runningMap := make(map[string]bool)
 	dispatchedOrder := make([]string, 0)
 	resultsMap := make(map[string]toolResultData)
 
@@ -791,6 +792,9 @@ func (r *ReviewEventsRepo) GetToolSummary(ctx context.Context, reviewID, orgID i
 				if _, exists := dispatchedMap[d.ToolName]; !exists {
 					dispatchedMap[d.ToolName] = ev.CreatedAt
 					dispatchedOrder = append(dispatchedOrder, d.ToolName)
+				}
+				if strings.EqualFold(strings.TrimSpace(d.Status), "running") {
+					runningMap[d.ToolName] = true
 				}
 			}
 		} else if ev.EventType == "tool_result" {
@@ -854,7 +858,7 @@ func (r *ReviewEventsRepo) GetToolSummary(ctx context.Context, reviewID, orgID i
 				item.Status = "clean"
 			}
 		} else {
-			if time.Since(dispatchTime) > 10*time.Second {
+			if runningMap[toolName] || time.Since(dispatchTime) > 10*time.Second {
 				item.Status = "running"
 			} else {
 				item.Status = "pending"
@@ -937,6 +941,9 @@ type DatabaseEventSink struct {
 
 // NewDatabaseEventSink creates a new database event sink
 func NewDatabaseEventSink(db *sql.DB) *DatabaseEventSink {
+	if db == nil {
+		return nil
+	}
 	return &DatabaseEventSink{
 		service: NewPollingEventService(db),
 	}
@@ -944,16 +951,25 @@ func NewDatabaseEventSink(db *sql.DB) *DatabaseEventSink {
 
 // EmitEvent implements the basic EventSink interface
 func (s *DatabaseEventSink) EmitEvent(ctx context.Context, event *ReviewEvent) error {
+	if s == nil || s.service == nil {
+		return nil
+	}
 	return s.service.EmitEvent(ctx, event)
 }
 
 // EmitStatusEvent emits a status change event
 func (s *DatabaseEventSink) EmitStatusEvent(ctx context.Context, reviewID, orgID int64, status string) error {
+	if s == nil || s.service == nil {
+		return nil
+	}
 	return s.service.CreateStatusEvent(ctx, reviewID, orgID, status, nil, nil)
 }
 
 // EmitLogEvent emits a log message event
 func (s *DatabaseEventSink) EmitLogEvent(ctx context.Context, reviewID, orgID int64, level, message, batchID string) error {
+	if s == nil || s.service == nil {
+		return nil
+	}
 	var batchIDPtr *string
 	if batchID != "" {
 		batchIDPtr = &batchID
@@ -963,6 +979,9 @@ func (s *DatabaseEventSink) EmitLogEvent(ctx context.Context, reviewID, orgID in
 
 // EmitBatchEvent emits a batch progress event
 func (s *DatabaseEventSink) EmitBatchEvent(ctx context.Context, reviewID, orgID int64, batchID, status string, tokenEstimate, fileCount int, comments interface{}) error {
+	if s == nil || s.service == nil {
+		return nil
+	}
 	var tokenPtr, filePtr *int
 	if tokenEstimate > 0 {
 		tokenPtr = &tokenEstimate
@@ -975,6 +994,9 @@ func (s *DatabaseEventSink) EmitBatchEvent(ctx context.Context, reviewID, orgID 
 
 // EmitArtifactEvent emits an artifact reference event
 func (s *DatabaseEventSink) EmitArtifactEvent(ctx context.Context, reviewID, orgID int64, kind, url, batchID string, sizeBytes int64, previewHead, previewTail string) error {
+	if s == nil || s.service == nil {
+		return nil
+	}
 	var batchIDPtr *string
 	var sizeBytesPtr *int64
 	var previewHeadPtr, previewTailPtr *string
@@ -997,6 +1019,9 @@ func (s *DatabaseEventSink) EmitArtifactEvent(ctx context.Context, reviewID, org
 
 // EmitCompletionEvent emits a review completion event
 func (s *DatabaseEventSink) EmitCompletionEvent(ctx context.Context, reviewID, orgID int64, resultSummary string, commentCount int, errorSummary string) error {
+	if s == nil || s.service == nil {
+		return nil
+	}
 	var commentCountPtr *int
 	var errorSummaryPtr *string
 

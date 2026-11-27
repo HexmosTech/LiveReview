@@ -49,6 +49,7 @@ func ComputeToolSummary(events []rawToolEvent, multiplierMap map[string]float64,
 	}
 
 	dispatchedMap := make(map[string]time.Time)
+	runningMap := make(map[string]bool)
 	dispatchedOrder := make([]string, 0)
 	resultsMap := make(map[string]toolResultData)
 
@@ -59,6 +60,9 @@ func ComputeToolSummary(events []rawToolEvent, multiplierMap map[string]float64,
 				if _, exists := dispatchedMap[d.ToolName]; !exists {
 					dispatchedMap[d.ToolName] = ev.CreatedAt
 					dispatchedOrder = append(dispatchedOrder, d.ToolName)
+				}
+				if strings.EqualFold(strings.TrimSpace(d.Status), "running") {
+					runningMap[d.ToolName] = true
 				}
 			}
 		} else if ev.EventType == "tool_result" {
@@ -113,7 +117,7 @@ func ComputeToolSummary(events []rawToolEvent, multiplierMap map[string]float64,
 				item.Status = "clean"
 			}
 		} else {
-			if currentTime.Sub(dispatchTime) > 10*time.Second {
+			if runningMap[toolName] || currentTime.Sub(dispatchTime) > 10*time.Second {
 				item.Status = "running"
 			} else {
 				item.Status = "pending"
@@ -480,12 +484,15 @@ func TestComputeToolSummary(t *testing.T) {
 		// E7: Tool running (dispatched > 10s ago)
 		insertRaw("tool_dispatch", map[string]interface{}{"tool_id": 7, "tool_name": "db_tool7", "status": "dispatched"}, dbNow.Add(-30*time.Second))
 
+		// E8: Tool actively running (marked status="running" <= 10s ago)
+		insertRaw("tool_dispatch", map[string]interface{}{"tool_id": 8, "tool_name": "db_tool8", "status": "running"}, dbNow.Add(-1*time.Second))
+
 		summary, err := repo.ComputeToolSummary(ctx, reviewID, orgID)
 		require.NoError(t, err)
 		require.NotNil(t, summary)
 		assert.Equal(t, 5, summary.ToolsExecuted)
 		assert.Equal(t, 3, summary.TotalCommentsGenerated)
-		require.Len(t, summary.ToolBreakdown, 7)
+		require.Len(t, summary.ToolBreakdown, 8)
 
 		statusMap := make(map[string]string)
 		for _, item := range summary.ToolBreakdown {
@@ -499,6 +506,7 @@ func TestComputeToolSummary(t *testing.T) {
 		assert.Equal(t, "partial", statusMap["db_tool5"], "E5 DB: Truncated with 0 findings must be partial")
 		assert.Equal(t, "pending", statusMap["db_tool6"], "E6 DB: Dispatched <= 10s ago must be pending")
 		assert.Equal(t, "running", statusMap["db_tool7"], "E7 DB: Dispatched > 10s ago must be running")
+		assert.Equal(t, "running", statusMap["db_tool8"], "E8 DB: Explicitly marked running <= 10s ago must be running immediately")
 	})
 }
 

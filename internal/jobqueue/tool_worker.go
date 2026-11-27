@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/livereview/internal/license"
+	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/review"
 	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/internal/toolclassifier"
@@ -22,6 +23,7 @@ import (
 )
 
 // ToolReviewJobArgs represents the arguments for executing a single static analysis tool via AWS Lambda.
+// Kept temporarily so any legacy tool_review jobs already queued during a mixed-version deploy drain cleanly.
 type ToolReviewJobArgs struct {
 	ReviewID       int64                  `json:"review_id"`
 	OrgID          int64                  `json:"org_id"`
@@ -38,7 +40,7 @@ type ToolReviewJobArgs struct {
 
 func (ToolReviewJobArgs) Kind() string { return "tool_review" }
 
-// ToolReviewWorker executes a single static analysis tool via AWS Lambda and stores classified findings.
+// ToolReviewWorker executes a single legacy tool_review River job and drains in-flight rows cleanly.
 type ToolReviewWorker struct {
 	river.WorkerDefaults[ToolReviewJobArgs]
 	db        *sql.DB
@@ -48,19 +50,18 @@ type ToolReviewWorker struct {
 }
 
 func (w *ToolReviewWorker) Timeout(job *river.Job[ToolReviewJobArgs]) time.Duration {
-	return 10 * time.Minute
+	return DefaultReviewJobTimeout
 }
 
-// NewToolReviewWorker creates a new ToolReviewWorker with AWS config and common Lambda configuration
-// (region, account ID) loaded strictly from system_settings in the database.
-func NewToolReviewWorker(db *sql.DB) *ToolReviewWorker {
+// loadAWSLambdaConfig loads AWS credentials and common Lambda settings (region, account ID)
+// strictly from system_settings in the database (no env fallback).
+func loadAWSLambdaConfig(db *sql.DB) (aws.Config, string, string) {
 	var accessKey, secretKey, region, accountID string
 
-	// Load AWS credentials and common settings strictly from database (no env fallback).
 	if db != nil {
 		rows, qErr := db.Query("SELECT name, data FROM public.system_settings WHERE name IN ('aws_lambda', 'aws_credentials') ORDER BY CASE WHEN name = 'aws_lambda' THEN 1 ELSE 2 END")
 		if qErr != nil {
-			log.Printf("[WARN] ToolReviewWorker: failed to load AWS settings from database: %v", qErr)
+			log.Printf("[WARN] loadAWSLambdaConfig: failed to load AWS settings from database: %v", qErr)
 		} else {
 			defer rows.Close()
 			for rows.Next() {
@@ -100,7 +101,7 @@ func NewToolReviewWorker(db *sql.DB) *ToolReviewWorker {
 	}
 
 	if region == "" || accessKey == "" || secretKey == "" {
-		log.Printf("[WARN] ToolReviewWorker: incomplete AWS Lambda settings in database (region_set=%v, credentials_set=%v)", region != "", accessKey != "" && secretKey != "")
+		log.Printf("[WARN] loadAWSLambdaConfig: incomplete AWS Lambda settings in database (region_set=%v, credentials_set=%v)", region != "", accessKey != "" && secretKey != "")
 	}
 
 	awsCfg := aws.Config{
@@ -109,6 +110,13 @@ func NewToolReviewWorker(db *sql.DB) *ToolReviewWorker {
 	if accessKey != "" && secretKey != "" {
 		awsCfg.Credentials = credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")
 	}
+	return awsCfg, region, accountID
+}
+
+// NewToolReviewWorker creates a new ToolReviewWorker with AWS config and common Lambda configuration
+// (region, account ID) loaded strictly from system_settings in the database.
+func NewToolReviewWorker(db *sql.DB) *ToolReviewWorker {
+	awsCfg, region, accountID := loadAWSLambdaConfig(db)
 	return &ToolReviewWorker{
 		db:        db,
 		awsCfg:    awsCfg,
@@ -117,113 +125,78 @@ func NewToolReviewWorker(db *sql.DB) *ToolReviewWorker {
 	}
 }
 
-func (w *ToolReviewWorker) Work(ctx context.Context, job *river.Job[ToolReviewJobArgs]) error {
-	args := job.Args
-	startTime := time.Now()
+type toolInvokeFunc func(ctx context.Context, awsCfg aws.Config, arn string, payload []byte, timeout time.Duration) ([]byte, error)
 
-	log.Printf("[INFO] ToolReviewWorker: starting tool=%s review=%d org=%d", args.ToolName, args.ReviewID, args.OrgID)
+type toolClassifyFunc func(ctx context.Context, db *sql.DB, orgID int64, planCode license.PlanType, toolName string, findings []toolclassifier.RawToolFinding, logger *logging.ReviewLogger) ([]*models.ReviewComment, error)
 
-	eventSink := reviewprocessor.NewDatabaseEventSink(w.db)
-	_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "info", fmt.Sprintf("Executing static analysis tool: %s", strings.ToUpper(args.ToolName)), "")
+type singleToolExecParams struct {
+	ReviewID     int64
+	OrgID        int64
+	PlanCode     string
+	ToolID       int64
+	ToolName     string
+	ToolCategory string
+	LambdaARN    string
+	PayloadBytes []byte
+	Truncated    bool
+	InvokeFn     toolInvokeFunc
+	ClassifyFn   toolClassifyFunc
+}
 
-	// Build Lambda payload
-	payload := map[string]interface{}{
-		"zip_file": args.DiffZipBase64,
-	}
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "error", fmt.Sprintf("Failed to marshal Lambda payload: %v", err), "")
-		return fmt.Errorf("failed to marshal Lambda payload: %w", err)
-	}
-
-	// Build target ARN: if args.LambdaARN holds only a function name (e.g. "ruff-python-linter"),
-	// construct the full ARN using the common region and account ID loaded from the database.
-	targetARN := args.LambdaARN
-	if !strings.HasPrefix(args.LambdaARN, "arn:") && !strings.Contains(args.LambdaARN, "invalid") {
-		region := w.region
+func resolveToolTargetARN(arn, workerRegion, cfgRegion, accountID string) string {
+	if !strings.HasPrefix(arn, "arn:") && !strings.Contains(arn, "invalid") {
+		region := workerRegion
 		if region == "" {
-			region = w.awsCfg.Region
+			region = cfgRegion
 		}
-		accountID := w.accountID
 		if region != "" && accountID != "" {
-			targetARN = fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", region, accountID, args.LambdaARN)
-		} else {
-			targetARN = args.LambdaARN
+			return fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", region, accountID, arn)
 		}
 	}
+	return arn
+}
 
-	log.Printf("[INFO] ToolReviewWorker: invoking Lambda %s (payload %d bytes) for tool=%s review=%d...", targetARN, len(payloadBytes), args.ToolName, args.ReviewID)
-	// Invoke Lambda
-	outBytes, invokeErr := networktools.InvokeTool(ctx, w.awsCfg, targetARN, payloadBytes)
-	if invokeErr != nil {
-		log.Printf("[ERROR] Lambda invocation for tool %s failed: %v", args.ToolName, invokeErr)
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-
-		_ = eventSink.EmitLogEvent(cleanupCtx, args.ReviewID, args.OrgID, "error", fmt.Sprintf("Lambda execution for tool %s failed: %v", args.ToolName, invokeErr), "")
-		// Write synthetic failure event
-		toolsStore := storagetools.NewToolsStore(w.db)
-		failData := map[string]interface{}{
-			"exit_code":      -1,
-			"findings":       []interface{}{},
-			"stderr":         invokeErr.Error(),
-			"failure_reason": invokeErr.Error(),
-		}
-		failBytes, _ := json.Marshal(failData)
-		if insertErr := toolsStore.InsertToolResultEvent(cleanupCtx, args.ReviewID, args.OrgID, args.ToolID, args.ToolName, failBytes); insertErr != nil {
-			log.Printf("[ERROR] Failed to insert synthetic tool result event: %v", insertErr)
-		}
-		_ = w.finalizeIfAllDone(cleanupCtx, args)
-		return nil
+func normalizeTruncatedToolResult(outBytes []byte, truncated bool) []byte {
+	if !truncated {
+		return outBytes
 	}
-
-	log.Printf("[INFO] ToolReviewWorker: Lambda returned %d bytes in %v for tool=%s review=%d", len(outBytes), time.Since(startTime).Round(time.Millisecond), args.ToolName, args.ReviewID)
-	_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "success", fmt.Sprintf("Lambda execution completed for %s (%d bytes returned)", args.ToolName, len(outBytes)), "")
-
-	// Store raw tool_result event
-	toolsStore := storagetools.NewToolsStore(w.db)
-	resultBytes := outBytes
-	if args.Truncated {
-		var payloadMap map[string]interface{}
-		if err := json.Unmarshal(outBytes, &payloadMap); err == nil && payloadMap != nil {
-			if _, hasFindings := payloadMap["findings"]; !hasFindings {
-				payloadMap["findings"] = []interface{}{}
-			}
-			payloadMap["truncated"] = true
-			if updated, err := json.Marshal(payloadMap); err == nil {
-				resultBytes = updated
-			}
-		} else {
-			var findingsList []interface{}
-			if err := json.Unmarshal(outBytes, &findingsList); err == nil {
-				payloadMap = map[string]interface{}{
-					"exit_code": 0,
-					"findings":  findingsList,
-					"truncated": true,
-				}
-				if updated, err := json.Marshal(payloadMap); err == nil {
-					resultBytes = updated
-				}
-			} else {
-				payloadMap = map[string]interface{}{
-					"exit_code":      1,
-					"findings":       []interface{}{},
-					"truncated":      true,
-					"stderr":         string(outBytes),
-					"failure_reason": "unmarshal lambda tool result failed",
-				}
-				if updated, err := json.Marshal(payloadMap); err == nil {
-					resultBytes = updated
-				}
-			}
+	var payloadMap map[string]interface{}
+	if err := json.Unmarshal(outBytes, &payloadMap); err == nil && payloadMap != nil {
+		if _, hasFindings := payloadMap["findings"]; !hasFindings {
+			payloadMap["findings"] = []interface{}{}
 		}
+		payloadMap["truncated"] = true
+		if updated, err := json.Marshal(payloadMap); err == nil {
+			return updated
+		}
+		return outBytes
 	}
-	if err := toolsStore.InsertToolResultEvent(ctx, args.ReviewID, args.OrgID, args.ToolID, args.ToolName, resultBytes); err != nil {
-		_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "error", fmt.Sprintf("Failed to store raw tool result event: %v", err), "")
-		return fmt.Errorf("failed to store tool result event: %w", err)
+	var findingsList []interface{}
+	if err := json.Unmarshal(outBytes, &findingsList); err == nil {
+		payloadMap = map[string]interface{}{
+			"exit_code": 0,
+			"findings":  findingsList,
+			"truncated": true,
+		}
+		if updated, err := json.Marshal(payloadMap); err == nil {
+			return updated
+		}
+		return outBytes
 	}
+	payloadMap = map[string]interface{}{
+		"exit_code":      1,
+		"findings":       []interface{}{},
+		"truncated":      true,
+		"stderr":         string(outBytes),
+		"failure_reason": "unmarshal lambda tool result failed",
+	}
+	if updated, err := json.Marshal(payloadMap); err == nil {
+		return updated
+	}
+	return outBytes
+}
 
-	// Parse findings and classify using deterministic rule map + taxonomy
+func parseLambdaFindings(resultBytes []byte) ([]toolclassifier.RawToolFinding, error) {
 	var altResp struct {
 		Findings []struct {
 			Rule        string `json:"rule"`
@@ -243,184 +216,322 @@ func (w *ToolReviewWorker) Work(ctx context.Context, job *river.Job[ToolReviewJo
 		} `json:"findings"`
 	}
 	if jsonErr := json.Unmarshal(resultBytes, &altResp); jsonErr != nil {
-		log.Printf("[WARN] ToolReviewWorker: failed to unmarshal Lambda findings output for tool=%s review=%d: %v", args.ToolName, args.ReviewID, jsonErr)
-	} else if len(altResp.Findings) > 0 {
-		rawList := make([]toolclassifier.RawToolFinding, len(altResp.Findings))
-		for i, f := range altResp.Findings {
-			rule := f.Rule
-			if rule == "" {
-				rule = f.RuleID
-			}
-			if rule == "" {
-				rule = f.CheckID
-			}
-			msg := f.Message
-			if msg == "" {
-				msg = f.Description
-			}
-			if msg == "" {
-				msg = f.Extra.Message
-			}
-			file := f.File
-			if file == "" {
-				file = f.Path
-			}
-			line := f.Line
-			if line == 0 && f.Start.Line > 0 {
-				line = f.Start.Line
-			}
-			rawList[i] = toolclassifier.RawToolFinding{
-				File:    file,
-				Line:    line,
-				Rule:    rule,
-				Message: msg,
-			}
+		return nil, jsonErr
+	}
+	rawList := make([]toolclassifier.RawToolFinding, len(altResp.Findings))
+	for i, f := range altResp.Findings {
+		rule := f.Rule
+		if rule == "" {
+			rule = f.RuleID
 		}
-		classifiedComments, classErr := toolclassifier.ClassifyToolResult(ctx, w.db, args.OrgID, license.PlanType(args.PlanCode), args.ToolName, rawList, nil)
-		if classErr == nil && len(classifiedComments) > 0 {
-			toolComments := make([]map[string]interface{}, 0, len(classifiedComments))
-			for _, c := range classifiedComments {
+		if rule == "" {
+			rule = f.CheckID
+		}
+		msg := f.Message
+		if msg == "" {
+			msg = f.Description
+		}
+		if msg == "" {
+			msg = f.Extra.Message
+		}
+		file := f.File
+		if file == "" {
+			file = f.Path
+		}
+		line := f.Line
+		if line == 0 && f.Start.Line > 0 {
+			line = f.Start.Line
+		}
+		rawList[i] = toolclassifier.RawToolFinding{
+			File:    file,
+			Line:    line,
+			Rule:    rule,
+			Message: msg,
+		}
+	}
+	return rawList, nil
+}
+
+func recordSyntheticToolFailure(
+	db *sql.DB,
+	reviewID, orgID, toolID int64,
+	toolName string,
+	eventSink logging.EventSink,
+	reason string,
+) {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if eventSink != nil {
+		_ = eventSink.EmitLogEvent(cleanupCtx, reviewID, orgID, "error", fmt.Sprintf("Lambda execution for tool %s failed: %s", toolName, reason), "")
+	}
+	if db == nil {
+		return
+	}
+	toolsStore := storagetools.NewToolsStore(db)
+	failData := map[string]interface{}{
+		"exit_code":      -1,
+		"findings":       []interface{}{},
+		"stderr":         reason,
+		"failure_reason": reason,
+	}
+	failBytes, _ := json.Marshal(failData)
+	if insertErr := toolsStore.InsertToolResultEvent(cleanupCtx, reviewID, orgID, toolID, toolName, failBytes); insertErr != nil {
+		log.Printf("[ERROR] Failed to insert synthetic tool result event for tool=%s review=%d: %v", toolName, reviewID, insertErr)
+	}
+}
+
+func emitToolBatchEventWithRetry(
+	ctx context.Context,
+	eventSink logging.EventSink,
+	reviewID, orgID int64,
+	toolName string,
+	comments []*models.ReviewComment,
+) {
+	if eventSink == nil {
+		return
+	}
+	// Ensure non-nil slice so empty results encode identically without surprises.
+	if comments == nil {
+		comments = []*models.ReviewComment{}
+	}
+	batchID := fmt.Sprintf("tool-%s", toolName)
+	if emitBatchErr := eventSink.EmitBatchEvent(ctx, reviewID, orgID, batchID, "completed", 0, len(comments), comments); emitBatchErr != nil {
+		log.Printf("[WARN] emitToolBatchEventWithRetry: failed to emit batch event for tool %s: %v, retrying once", toolName, emitBatchErr)
+		retryCtx, retryCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if retryErr := eventSink.EmitBatchEvent(retryCtx, reviewID, orgID, batchID, "completed", 0, len(comments), comments); retryErr != nil {
+			log.Printf("[ERROR] emitToolBatchEventWithRetry: retry failed to emit batch event for tool %s: %v", toolName, retryErr)
+		}
+		retryCancel()
+	}
+}
+
+func markToolDispatchRunning(ctx context.Context, db *sql.DB, reviewID, orgID int64, toolName string) {
+	if db == nil || reviewID <= 0 || orgID <= 0 || toolName == "" {
+		return
+	}
+	// Update status on the single tool_dispatch row rather than inserting a second
+	// event so tool_dispatch counts remain exact 1:1 per dispatched tool.
+	_, err := db.ExecContext(ctx, `
+		UPDATE public.review_events
+		SET data = jsonb_set(COALESCE(data, '{}'::jsonb), '{status}', '"running"'::jsonb, true)
+		WHERE review_id = $1 AND org_id = $2 AND event_type = 'tool_dispatch'
+		  AND lower(data->>'tool_name') = lower($3)
+	`, reviewID, orgID, toolName)
+	if err != nil {
+		log.Printf("[WARN] ToolRunner: failed to mark tool_dispatch running for tool=%s review=%d: %v", toolName, reviewID, err)
+	}
+}
+
+// executeSingleToolInvocation invokes one AWS Lambda tool (with transient retry), persists
+// tool_result, classifies findings within ClassifyTimeout, and emits a completed tool-<name>
+// batch event even when 0 comments were found. It does NOT mutate reviews.metadata.review_result.
+func executeSingleToolInvocation(
+	ctx context.Context,
+	db *sql.DB,
+	awsCfg aws.Config,
+	region, accountID string,
+	params singleToolExecParams,
+	cfg ToolsExecutionConfig,
+	eventSink logging.EventSink,
+) ([]*models.ReviewComment, bool, error) {
+	startTime := time.Now()
+	markToolDispatchRunning(ctx, db, params.ReviewID, params.OrgID, params.ToolName)
+	if eventSink != nil {
+		_ = eventSink.EmitLogEvent(ctx, params.ReviewID, params.OrgID, "info", fmt.Sprintf("Executing static analysis tool: %s", strings.ToUpper(params.ToolName)), "")
+	}
+
+	targetARN := resolveToolTargetARN(params.LambdaARN, region, awsCfg.Region, accountID)
+	log.Printf("[INFO] ToolRunner: invoking Lambda %s (payload %d bytes) for tool=%s review=%d...", targetARN, len(params.PayloadBytes), params.ToolName, params.ReviewID)
+
+	invokeFn := params.InvokeFn
+	if invokeFn == nil {
+		invokeFn = networktools.InvokeToolWithTimeout
+	}
+
+	var outBytes []byte
+	var invokeErr error
+	maxRetries := max(cfg.MaxRetries, 0)
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		outBytes, invokeErr = invokeFn(ctx, awsCfg, targetARN, params.PayloadBytes, cfg.InvokeTimeout)
+		if invokeErr == nil {
+			break
+		}
+		if attempt >= maxRetries || !networktools.IsTransientToolInvokeError(invokeErr) || ctx.Err() != nil {
+			break
+		}
+		log.Printf("[WARN] ToolRunner: transient Lambda error for tool=%s review=%d (attempt %d/%d), retrying in %v: %v",
+			params.ToolName, params.ReviewID, attempt+1, maxRetries+1, cfg.RetryDelay, invokeErr)
+		timer := time.NewTimer(cfg.RetryDelay)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			invokeErr = ctx.Err()
+		}
+		if ctx.Err() != nil {
+			break
+		}
+	}
+
+	if invokeErr != nil {
+		log.Printf("[ERROR] Lambda invocation for tool %s failed: %v", params.ToolName, invokeErr)
+		recordSyntheticToolFailure(db, params.ReviewID, params.OrgID, params.ToolID, params.ToolName, eventSink, invokeErr.Error())
+		return nil, false, nil
+	}
+
+	log.Printf("[INFO] ToolRunner: Lambda returned %d bytes in %v for tool=%s review=%d", len(outBytes), time.Since(startTime).Round(time.Millisecond), params.ToolName, params.ReviewID)
+	if eventSink != nil {
+		_ = eventSink.EmitLogEvent(ctx, params.ReviewID, params.OrgID, "success", fmt.Sprintf("Lambda execution completed for %s (%d bytes returned)", params.ToolName, len(outBytes)), "")
+	}
+
+	resultBytes := normalizeTruncatedToolResult(outBytes, params.Truncated)
+	toolsStore := storagetools.NewToolsStore(db)
+	if err := toolsStore.InsertToolResultEvent(ctx, params.ReviewID, params.OrgID, params.ToolID, params.ToolName, resultBytes); err != nil {
+		if eventSink != nil {
+			_ = eventSink.EmitLogEvent(ctx, params.ReviewID, params.OrgID, "error", fmt.Sprintf("Failed to store raw tool result event: %v", err), "")
+		}
+		return nil, false, fmt.Errorf("failed to store tool result event: %w", err)
+	}
+
+	rawList, jsonErr := parseLambdaFindings(resultBytes)
+	classifiedComments := make([]*models.ReviewComment, 0)
+	if jsonErr != nil {
+		log.Printf("[WARN] ToolRunner: failed to unmarshal Lambda findings output for tool=%s review=%d: %v", params.ToolName, params.ReviewID, jsonErr)
+	} else if len(rawList) > 0 {
+		classifyFn := params.ClassifyFn
+		if classifyFn == nil {
+			classifyFn = toolclassifier.ClassifyToolResult
+		}
+		classifyTimeout := cfg.ClassifyTimeout
+		if classifyTimeout <= 0 {
+			classifyTimeout = DefaultToolClassifyTimeout
+		}
+		classifyCtx, classifyCancel := context.WithTimeout(ctx, classifyTimeout)
+		classified, classErr := classifyFn(classifyCtx, db, params.OrgID, license.PlanType(params.PlanCode), params.ToolName, rawList, nil)
+		classifyCancel()
+		if classErr != nil {
+			log.Printf("[WARN] ToolRunner: classification error for tool=%s review=%d: %v", params.ToolName, params.ReviewID, classErr)
+		} else {
+			for _, c := range classified {
 				if c == nil {
 					continue
 				}
-				if c.ToolCategory == "" && args.ToolCategory != "" {
-					c.ToolCategory = args.ToolCategory
+				if c.ToolName == "" {
+					c.ToolName = params.ToolName
 				}
-				toolComments = append(toolComments, map[string]interface{}{
-					"file_path":   c.FilePath,
-					"line":        c.Line,
-					"content":     c.Content,
-					"severity":    string(c.Severity),
-					"category":    c.Category,
-					"subcategory": c.Subcategory,
-					"confidence":  c.Confidence,
-					"type":        c.Type,
-					"suggestions": c.Suggestions,
-					"source":        "tool",
-					"tool_name":     args.ToolName,
-					"tool_category": c.ToolCategory,
-				})
-			}
-
-			if len(toolComments) > 0 {
-				toolCommentsBytes, err := json.Marshal(toolComments)
-				if err != nil {
-					log.Printf("[ERROR] ToolReviewWorker: failed to marshal tool comments for review %d tool=%s: %v", args.ReviewID, args.ToolName, err)
-					_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "error", fmt.Sprintf("Failed to marshal %s findings: %v", args.ToolName, err), "")
-				} else {
-					appendQuery := `
-						UPDATE public.reviews
-						SET metadata = jsonb_set(
-							COALESCE(metadata, '{}'::jsonb),
-							'{review_result}',
-							COALESCE(metadata->'review_result', '{}'::jsonb) || jsonb_build_object(
-								'comments',
-								COALESCE(metadata->'review_result'->'comments', '[]'::jsonb) || $1::jsonb
-							)
-						)
-						WHERE id = $2
-					`
-					if _, execErr := w.db.ExecContext(ctx, appendQuery, toolCommentsBytes, args.ReviewID); execErr != nil {
-						log.Printf("[ERROR] ToolReviewWorker: failed to append tool comments to review %d metadata: %v", args.ReviewID, execErr)
-					} else {
-						_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "success", fmt.Sprintf("Appended %d %s findings to review #%d", len(toolComments), strings.ToUpper(args.ToolName), args.ReviewID), "")
-						log.Printf("[INFO] ToolReviewWorker: tool=%s review=%d appended %d comments to review_result", args.ToolName, args.ReviewID, len(toolComments))
-						// Emit batch event for UI real-time streaming and Chrome desktop push notification.
-						// Non-fatal: tool findings are already persisted to metadata and progress is tracked
-						// via tool_result event. Failing the job here would trigger a River retry, causing
-						// re-billing of credits and duplicate PR comments.
-						batchID := fmt.Sprintf("tool-%s", args.ToolName)
-						if emitBatchErr := eventSink.EmitBatchEvent(ctx, args.ReviewID, args.OrgID, batchID, "completed", 0, len(classifiedComments), classifiedComments); emitBatchErr != nil {
-							log.Printf("[WARN] ToolReviewWorker: failed to emit batch event for tool %s: %v, retrying once", args.ToolName, emitBatchErr)
-							retryCtx, retryCancel := context.WithTimeout(context.Background(), 5*time.Second)
-							if retryErr := eventSink.EmitBatchEvent(retryCtx, args.ReviewID, args.OrgID, batchID, "completed", 0, len(classifiedComments), classifiedComments); retryErr != nil {
-								log.Printf("[ERROR] ToolReviewWorker: retry failed to emit batch event for tool %s: %v", args.ToolName, retryErr)
-							}
-							retryCancel()
-						}
-					}
+				if c.ToolCategory == "" && params.ToolCategory != "" {
+					c.ToolCategory = params.ToolCategory
 				}
-			}
-
-			// Post tool findings to external git provider (Bitbucket, GitHub, GitLab, etc.) if configured
-			if args.ProviderConfig != nil && args.ProviderConfig.Type != "" && args.ProviderConfig.Type != "cli" && args.PostingID != "" && len(classifiedComments) > 0 {
-				w.postToolCommentsToProvider(ctx, args, classifiedComments, eventSink)
+				if c.Source == "" {
+					c.Source = "tool"
+				}
+				classifiedComments = append(classifiedComments, c)
 			}
 		}
 	} else {
-		log.Printf("[INFO] ToolReviewWorker: tool=%s review=%d no findings to classify", args.ToolName, args.ReviewID)
+		log.Printf("[INFO] ToolRunner: tool=%s review=%d clean (0 findings)", params.ToolName, params.ReviewID)
+	}
+
+	// Always emit the completed batch event (even with 0 comments) so incremental
+	// UI polling and River job retry hydration both have an exact signal that this
+	// tool finished and was classified.
+	emitToolBatchEventWithRetry(ctx, eventSink, params.ReviewID, params.OrgID, params.ToolName, classifiedComments)
+
+	return classifiedComments, true, nil
+}
+
+func (w *ToolReviewWorker) Work(ctx context.Context, job *river.Job[ToolReviewJobArgs]) error {
+	args := job.Args
+	log.Printf("[INFO] ToolReviewWorker: starting legacy job tool=%s review=%d org=%d", args.ToolName, args.ReviewID, args.OrgID)
+
+	eventSink := reviewprocessor.NewDatabaseEventSink(w.db)
+	payload := map[string]interface{}{
+		"zip_file": args.DiffZipBase64,
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "error", fmt.Sprintf("Failed to marshal Lambda payload: %v", err), "")
+		return fmt.Errorf("failed to marshal Lambda payload: %w", err)
+	}
+
+	cfg := DefaultToolsExecutionConfig()
+	cfg.MaxRetries = 0 // River already manages retries for legacy ToolReviewWorker jobs.
+
+	classifiedComments, ok, execErr := executeSingleToolInvocation(ctx, w.db, w.awsCfg, w.region, w.accountID, singleToolExecParams{
+		ReviewID:     args.ReviewID,
+		OrgID:        args.OrgID,
+		PlanCode:     args.PlanCode,
+		ToolID:       args.ToolID,
+		ToolName:     args.ToolName,
+		ToolCategory: args.ToolCategory,
+		LambdaARN:    args.LambdaARN,
+		PayloadBytes: payloadBytes,
+		Truncated:    args.Truncated,
+	}, cfg, eventSink)
+	if execErr != nil {
+		return execErr
+	}
+
+	if !ok {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		_ = w.finalizeIfAllDone(cleanupCtx, args)
+		return nil
+	}
+
+	if len(classifiedComments) > 0 {
+		toolCommentsBytes, mErr := json.Marshal(classifiedComments)
+		if mErr != nil {
+			log.Printf("[ERROR] ToolReviewWorker: failed to marshal tool comments for review %d tool=%s: %v", args.ReviewID, args.ToolName, mErr)
+			_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "error", fmt.Sprintf("Failed to marshal %s findings: %v", args.ToolName, mErr), "")
+		} else {
+			appendQuery := `
+				UPDATE public.reviews
+				SET metadata = jsonb_set(
+					COALESCE(metadata, '{}'::jsonb),
+					'{review_result}',
+					COALESCE(metadata->'review_result', '{}'::jsonb) || jsonb_build_object(
+						'comments',
+						COALESCE(metadata->'review_result'->'comments', '[]'::jsonb) || $1::jsonb
+					)
+				)
+				WHERE id = $2
+			`
+			if _, execErr := w.db.ExecContext(ctx, appendQuery, toolCommentsBytes, args.ReviewID); execErr != nil {
+				log.Printf("[ERROR] ToolReviewWorker: failed to append tool comments to review %d metadata: %v", args.ReviewID, execErr)
+			} else {
+				_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "success", fmt.Sprintf("Appended %d %s findings to review #%d", len(classifiedComments), strings.ToUpper(args.ToolName), args.ReviewID), "")
+			}
+		}
+
+		if args.ProviderConfig != nil && args.ProviderConfig.Type != "" && args.ProviderConfig.Type != "cli" && args.PostingID != "" {
+			w.postToolCommentsToProvider(ctx, args, classifiedComments, eventSink)
+		}
 	}
 
 	w.finalizeIfAllDone(ctx, args)
 	return nil
 }
 
-// postToolCommentsToProvider reuses the standard Provider.PostComments implementation to publish
-// classified tool findings directly as review comments on the pull/merge request.
+// postToolCommentsToProvider delegates to reviewprocessor.PostToolCommentsToProvider.
 func (w *ToolReviewWorker) postToolCommentsToProvider(
 	ctx context.Context,
 	args ToolReviewJobArgs,
 	comments []*models.ReviewComment,
 	eventSink *reviewprocessor.DatabaseEventSink,
 ) {
-	if args.ProviderConfig == nil || len(comments) == 0 || args.PostingID == "" {
-		return
+	cfg := DefaultToolsExecutionConfig()
+	var sink logging.EventSink
+	if eventSink != nil {
+		sink = eventSink
 	}
-
-	providerCfg := *args.ProviderConfig
-	if providerCfg.Config == nil {
-		providerCfg.Config = make(map[string]interface{})
-	}
-	if repoURL, _ := providerCfg.Config["repo_url"].(string); repoURL == "" && providerCfg.URL != "" {
-		providerCfg.Config["repo_url"] = providerCfg.URL
-	}
-
-	providerFactory := review.NewStandardProviderFactory()
-	provider, err := providerFactory.CreateProvider(ctx, providerCfg)
-	if err != nil {
-		log.Printf("[WARN] ToolReviewWorker: failed to create provider %s for tool %s review %d: %v",
-			providerCfg.Type, args.ToolName, args.ReviewID, err)
-		if eventSink != nil {
-			_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "warn",
-				fmt.Sprintf("Failed to create %s provider for %s comments: %v", providerCfg.Type, strings.ToUpper(args.ToolName), err), "")
-		}
-		return
-	}
-
-	postingComments := make([]*models.ReviewComment, 0, len(comments))
-	for _, c := range comments {
-		if c == nil {
-			continue
-		}
-		commentCopy := new(models.ReviewComment)
-		*commentCopy = *c
-		if commentCopy.ToolName == "" {
-			commentCopy.ToolName = args.ToolName
-		}
-		postingComments = append(postingComments, commentCopy)
-	}
-
-	postCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-
-	log.Printf("[INFO] ToolReviewWorker: posting %d %s comments to %s (postingID: %s) for review %d",
-		len(postingComments), args.ToolName, providerCfg.Type, args.PostingID, args.ReviewID)
-
-	if postErr := provider.PostComments(postCtx, args.PostingID, postingComments); postErr != nil {
-		log.Printf("[WARN] ToolReviewWorker: failed to post %s comments to %s for review %d: %v",
-			args.ToolName, providerCfg.Type, args.ReviewID, postErr)
-		if eventSink != nil {
-			_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "warn",
-				fmt.Sprintf("Failed to post %s comments to pull request: %v", strings.ToUpper(args.ToolName), postErr), "")
-		}
-	} else {
-		log.Printf("[INFO] ToolReviewWorker: successfully posted %d %s comments to %s for review %d",
-			len(postingComments), args.ToolName, providerCfg.Type, args.ReviewID)
-		if eventSink != nil {
-			_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "success",
-				fmt.Sprintf("Posted %d %s findings to pull request", len(postingComments), strings.ToUpper(args.ToolName)), "")
-		}
-	}
+	reviewprocessor.PostToolCommentsToProvider(ctx, w.db, args.OrgID, args.ReviewID, comments, reviewprocessor.ToolPostConfig{
+		ProviderConfig: args.ProviderConfig,
+		PostingID:      args.PostingID,
+		PacingDelay:    cfg.PostPacingDelay,
+		MaxRetries:     cfg.PostMaxRetries,
+	}, sink)
 }
 
 // finalizeIfAllDone checks if all dispatched tools have returned results and coordinates completion with the AI review.

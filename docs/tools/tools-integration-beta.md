@@ -1,8 +1,9 @@
 # Third-Party Tools Integration – Beta
 
-LiveReview runs external static analysis tools as parallel AWS Lambda worker jobs alongside or independently of AI code reviews.
-The system stores findings as `tool_result` events in the `review_events` database table.
-The system displays findings in the review web interface, in the `lrc` command line interface, and posts them directly to Git hosting providers (GitHub, GitLab, Bitbucket) as inline review comments on pull requests and merge requests.
+LiveReview runs external static analysis tools concurrently inside each review job alongside AI code reviews.
+The system stores execution state and incremental batches in the `review_events` database table.
+LiveReview web UI and `lrc ui` stream findings per tool as each tool completes.
+After both AI review and all tools finish, LiveReview posts tool findings directly to Git hosting providers as inline PR comments.
 
 This feature is available in cloud mode only for paid organizations.
 Non-cloud (self-hosted) environments completely omit third-party tools: no tool UI, no settings tab, and no tool API endpoints exist.
@@ -20,14 +21,15 @@ The system includes the following operational components:
 - Database migration `20261102221500_create_tools_integration.sql` establishes credit counters, rule taxonomies, and audit ledgers.
 - The global tool catalog stores configurations in `system_settings` under the key `tools_catalog` with 15 launch tools.
 - Per-organization tool settings persist directly inside `orgs.settings->'tools'`, and per-repository PR-only overrides persist in `repositories.settings->'tools'`.
-- The `River` job queue executes tools concurrently with `ToolReviewWorker` under the `tool_review` job kind.
-- The shared `ToolDispatcher` (`internal/jobqueue/tool_dispatcher.go`) evaluates permissions, diff file patterns, and credit preflights.
-- AWS Lambda functions execute containerized linters and return normalized JSON payloads.
-- The `toolclassifier` module normalizes findings across a 3-tier classification engine: in-memory rules, database cache, and helper LLM.
+- Review workers (`ManualReviewWorker`, `DiffReviewWorker`) run inline tool goroutines via `StartToolsAsync` with per-review (15) and global (30) concurrency limits. (`ToolReviewWorker` remains only for legacy `tool_review` jobs.)
+- The shared `ToolDispatcher` (`internal/jobqueue/tool_dispatcher.go`) evaluates permissions, diff file patterns, retry hydration, and credit preflights.
+- AWS Lambda functions execute containerized linters over a shared keep-alive HTTP client and return normalized JSON payloads.
+- The `toolclassifier` module normalizes findings across a 3-tier classification engine: in-memory rules, database cache, and rate-limited helper LLM.
 - The database rule cache in `tool_rule_taxonomies` permanently stores learned classifications across server restarts.
 - Diff packaging (`internal/jobqueue/diff_packager.go`) enforces a 1 MiB per-file limit and a 6 MB archive limit (matching AWS Lambda's synchronous invocation limit) with truncation detection.
 - Credit store (`storage/tools/credit_store.go`) deducts tool credits with an atomic ledger snapshot and non-negative constraints.
-- **Git Provider PR Comment Posting**: `ToolReviewWorker` reuses `provider.PostComments()` to publish classified tool findings directly to Git providers (GitHub, GitLab, Bitbucket) as inline review comments with tool badges (e.g. `[SEMGREP]`), alongside AI review comments.
+- **Git Provider PR Comment Posting**: After AI review and all inline tools succeed, `PostToolCommentsToProvider` deduplicates against AI comments, publishes findings through `provider.PostComments()`, and tracks stable leaf JSONB markers (`tools_posted_to_provider` / `tools_skipped_on_provider`).
+- **Live Running Status**: Inline tools start as `pending` (`Queued`) while waiting on concurrency limits and switch `tool_dispatch` to `running` once AWS Lambda invocation begins.
 - Free and unpaid plans (`free`, `free_30k`) cannot access tool execution or tool user interfaces.
 
 ---
@@ -48,26 +50,25 @@ flowchart TD
     G -->|No| C
     G -->|Yes| H["Deduct Tool Credits<br/>(Atomic Ledger Entry)"]
     
-    H --> I["Insert tool_dispatch Events<br/>(review_events)"]
-    I --> J["Enqueue ToolReviewJob per Tool<br/>(River Queue)"]
+    H --> I["Insert tool_dispatch Events &<br/>Hydrate Prior tool_result Events"]
+    I --> J["Launch Inline Goroutines via StartToolsAsync<br/>(Per-Review 15, Global 30 Semaphores)"]
     
-    J --> K["ToolReviewWorker"]
-    K --> L["Invoke AWS Lambda Worker"]
+    J --> K["executeSingleToolInvocation<br/>(Concurrent With AI Review)"]
+    K --> L["Invoke AWS Lambda<br/>(Shared Keep-Alive HTTP Client)"]
     
     L --> M{"Lambda Success?"}
     M -->|No| N["Write Synthetic Failure<br/>(exit_code: -1, record reason)"]
     M -->|Yes| O["Parse JSON Findings<br/>(normalize rule_id)"]
     
-    O --> P["3-Tier ToolClassifier<br/>(Tier 1 -> Tier 2 -> Tier 3)"]
-    P --> Q["Store Comments in<br/>reviews.metadata review_result"]
-    Q --> POST["Post Comments to Git Provider<br/>(provider.PostComments)"]
+    O --> P["3-Tier ToolClassifier<br/>(Tier 1 -> Tier 2 -> Adaptive Tier 3)"]
+    P --> Q["Emit tool-&lt;name&gt; Batch Event<br/>(Stream Fast to LiveReview UI & lrc ui)"]
     
-    N --> R["w.finalizeIfAllDone()"]
-    POST --> R
+    N --> R["ProcessManualReviewWithTools Waits<br/>(AI Done + WaitForTools)"]
+    Q --> R
     
-    R --> S{"All Dispatched Tools &<br/>AI Review Finished?"}
-    S -->|No| T["Wait for Sibling Workers"]
-    S -->|Yes| U["Set Final Review Status<br/>(completed or partial)"]
+    R --> POST["Post Tool Comments to Git Provider<br/>(Per-Comment Markers, After AI + Tools)"]
+    POST --> S["Merge Comments & Atomic JSONB Update<br/>(COALESCE(metadata, '{}') || patch)"]
+    S --> U["Set Final Review Status<br/>(completed or partial)"]
 
     %% Trigger & Gates
     style A fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1e3a8a
@@ -96,8 +97,8 @@ flowchart TD
 
     %% Finalization
     style R fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0c4a6e
+    style POST fill:#e0e7ff,stroke:#4f46e5,stroke-width:2px,color:#312e81
     style S fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0c4a6e
-    style T fill:#f1f5f9,stroke:#64748b,stroke-width:2px,color:#334155
     style U fill:#bbf7d0,stroke:#15803d,stroke-width:3px,color:#14532d
 ```
 
@@ -286,9 +287,9 @@ LiveReview tracks static tool findings and classifications based on the canonica
 | **5. Canonical Rule Identification** | Resolve vendor rule ID to canonical rule key (`tool:rule_id`); resolve rule aliases | `tool_name`, `finding.rule` | Lowercased canonical `rule_key` | Unknown alias -> defaults to `tool:rule` | LiveReview Backend (`toolclassifier`) |
 | **6. Taxonomy Classification** | Resolve canonical rule into LiveReview taxonomy via 3 tiers (Static -> DB Cache -> Leader LLM) | `rule_key`, unique novel findings | Resolved `TaxonomyTuple` (Category, Subcategory, Severity, Confidence, Type) | Tier 3 LLM failure -> safe fallback (`Maintainability`/`Technical Debt`/`info`) | LiveReview Backend (`toolclassifier`) |
 | **7. Finding Deduplication & Identity Matching** | Deduplicate identical findings in diff, match against existing review findings | Normalized findings, diff hunk context, file path | Deduplicated findings list with stable finding fingerprint | Line drift -> match by code hunk fingerprint | LiveReview Backend (`review_worker`) |
-| **8. Persistence** | Atomically store execution status, comments, credit ledger, and cache novel rules | Comments, tool execution status, credit deductions | DB rows in `tool_reviews`, `tool_rule_taxonomies`, `review_comments`, `tool_credit_ledger` | DB failure -> rollback review; worker retries idempotently | LiveReview Backend (`review_worker`) |
+| **8. Persistence & Streaming** | Stream per-tool `tool-<name>` `batch` events to `review_events` as each tool completes, then atomically merge `reviews.metadata` | Comments, tool execution status, credit deductions | Rows in `review_events`, `tool_rule_taxonomies`, `tool_credit_ledger`, and `reviews.metadata` | Retries hydrate prior `review_events` and re-run incomplete tools only | LiveReview Backend (`jobqueue`, `review_processor`) |
 | **9. UI Presentation** | Render tool status cards, KPI tile, badges, and diff annotations | Review details, tool execution metadata, review comments | Interactive UI components (`ToolAnalysisCard`, `IssueFilterBar`) | Partial/failed review -> visual indicator (Partial/Failed badge) | LiveReview Frontend (`ui/`) |
-| **10. Comment & Provenance** | Attach immutable provenance to findings (source="tool", tool_name, rule_id, scanner version) and publish inline comments to Git provider (GitHub, GitLab, Bitbucket) via `provider.PostComments()` | Review comments, tool metadata, provider context | User-facing comment with provenance popover and Git provider PR review comment | Posting failure logged as non-fatal warning; does not fail review | LiveReview Backend & Frontend |
+| **10. Post-Completion Comment & Provenance** | Attach immutable provenance (`source="tool"`, `tool_name`, `rule_id`) and publish PR comments after AI and tools finish | Review comments, tool metadata, provider context | Provenance badges, per-comment `tools_posted_to_provider` markers, and Git PR comments | Posting failures retry within context budget and log non-fatal warnings | LiveReview Backend (`review_processor`) & Frontend |
 
 ---
 

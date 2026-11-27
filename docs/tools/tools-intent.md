@@ -36,9 +36,10 @@ Tools run automatically across all review workflows:
 5. **API & MCP Triggers**: When reviews are started via API or MCP agent tools.
 
 ### Execution Rules
-- **Runs in Parallel**: Dispatched tools run in parallel with each other and alongside the AI review in the cloud.
-- **One Combined Review**: Findings from both AI and static tools are placed into the same review comment list.
-- **Git Provider PR Comments**: Tool findings must also be posted back to the Git provider (GitHub, GitLab, Bitbucket) as inline pull request comments, matching the presentation of AI review comments.
+- **Runs in Parallel Inline**: Dispatched tools execute concurrently inside the active review job alongside the AI review, bounded by per-review (`15`) and global (`30`) concurrency caps.
+- **Fast UI Streaming per Tool**: As soon as a tool's Lambda invocation and taxonomy classification finish, LiveReview emits a `tool-<name>` `batch` event so LiveReview UI and `lrc ui` show its findings immediately without waiting for slower sibling tools.
+- **One Combined Review**: Findings from both AI and static tools are merged and deduplicated into the same review comment list.
+- **Git Provider PR Comments (Post-Completion Only)**: After **both** the AI review and all active tools finish (and only when the AI review succeeds), static tool findings are deduplicated against AI comments and posted back to the Git provider (GitHub, GitLab, Bitbucket) as inline pull request comments matching AI formatting. If the AI review fails, tool findings are preserved in LiveReview without posting to the PR.
 - **Review Completion**: A review marks itself complete only after all active tools and the AI review finish.
 
 ---
@@ -151,9 +152,9 @@ To keep reviews fast and respect cloud runner limits:
 - **Safe Unknown Fallback**: If a tool reports a new or unrecognized rule, LiveReview assigns it a safe informational status (`Maintainability: Technical Debt`, `info` severity) with a `[Proposed]` badge. It **never** defaults unknown rules to critical security alerts, ensuring no false alarms or blocked PRs.
 
 ### 8.3 Git Provider Pull Request Comments
-- **Posting to Git Providers**: In addition to displaying findings inside the LiveReview web dashboard, static analysis tool findings should also be posted directly to the Git provider (GitHub, GitLab, Bitbucket) as inline review comments on the pull request/merge request.
-- **Unified Comment Experience**: Tool findings should be clearly attributed (e.g. `[Semgrep]`, `[TruffleHog]`) with their rule, severity, and suggested remediation, posted alongside the AI review comments so developers receive all static analysis feedback directly in their pull request review workflow.
-- **Coordination**: When tool execution completes, findings are submitted to the Git hosting provider's PR comments API using the repository's integration token.
+- **Posting to Git Providers**: In addition to streaming findings live to LiveReview UI and `lrc ui` per tool, static analysis tool findings are posted directly to the Git provider (GitHub, GitLab, Bitbucket) as inline review comments on the pull request/merge request.
+- **Unified Comment Experience**: Tool findings carry explicit tool attribution (`**Tool: <name>**`) alongside severity, category, and suggestions so developers see all static analysis feedback on the pull request.
+- **Post-Completion Coordination & Idempotency**: LiveReview deduplicates tool findings against AI findings before posting so PR and UI always agree, then posts PR comments **only after both the AI review and all inline tools succeed**, recording leaf JSONB per-comment markers (`tools_posted_to_provider` for posted comments, `tools_skipped_on_provider` for non-transient provider errors like `400`/`422`) so retries never duplicate comments.
 
 ---
 
@@ -171,29 +172,30 @@ LiveReview tracks static tool findings and classifications based on the canonica
 
 ---
 
-## 10. Future Iteration: Async Parallel Batch Execution Model
+## 10. Current Execution Architecture: Inline Parallel Fan-Out
 
-### The Problem in Current Queue Architecture
-In the initial v1 release, `DispatchTools()` enqueues each enabled tool as an independent `ToolReviewJob` into the shared River queue (`"review"`). When a review enables 15 tools, 15 separate database jobs are queued.
+### Why We Moved Away From v1 Queueing
+In the initial v1 release, `DispatchTools()` enqueued each enabled tool as an independent `ToolReviewJob` into the shared River queue (`"review"`). When a review enabled 15 tools, 15 separate database jobs were queued.
 
 Under concurrent team usage (for example, 10 developers creating PRs simultaneously):
-- **10 AI Review Jobs + 150 Tool Jobs = 160 jobs** are inserted into the same queue.
-- On standard production instances with limited worker concurrency (e.g. 2–10 workers), this causes **Head-of-Line Blocking**: subsequent developers' fast AI reviews wait in line behind preceding developers' 15 individual tool jobs, artificially inflating review completion times from ~1.5 minutes up to 6–8 minutes.
+- **10 AI Review Jobs + 150 Tool Jobs = 160 jobs** competed in the same queue.
+- On 2-core production instances, queueing 15 separate River jobs per review caused **Head-of-Line Blocking** and inflated end-to-end review latency.
 
-### The Next Iteration Design: Async Parallel Fan-Out
-In the upcoming iteration, tool execution will be redesigned around an **Async Parallel Model**:
+### Implemented Inline Parallel Model (`StartToolsAsync`)
+LiveReview now executes static tools inline within the single review job (`ManualReviewWorker` / `DiffReviewWorker`):
 
-1. **Single Batch Job per Review**:
-   - Instead of 15 individual River queue records per review, LiveReview will enqueue **1 single `ReviewToolsBatchJob`** (or invoke async fan-out directly).
-   - For 10 concurrent developers, total River jobs drop from **160 jobs $\rightarrow$ 20 jobs** (an 87.5% reduction in queue overhead).
+1. **One Review Job Instead of 15 Extra Queue Jobs**:
+   - `StartToolsAsync` launches tool goroutines directly inside the review worker instead of inserting 15 `tool_review` River rows.
+   - `ToolReviewWorker` remains registered only to drain any pre-existing legacy `tool_review` jobs.
 
-2. **Parallel Async Invocation (All 15 at Once)**:
-   - The batch worker fires all 15 tool executions simultaneously using asynchronous non-blocking Go routines (or AWS Lambda's asynchronous `InvocationType: Event` with a `/callback` webhook).
-   - Because cloud runners (AWS Lambda) scale elastically in parallel, all 15 tools execute at the exact same instant in the cloud.
+2. **Bounded Concurrent Fan-Out & Shared Transport**:
+   - Tool execution uses a per-review concurrency limit (`15`) and a process-wide global limit (`30`), invoked over a shared keep-alive HTTP Lambda client (`lambdaHTTPClient`) with adaptive rate limiting on Tier 3 LLM calls.
+   - All applicable tools start immediately in parallel with the AI review.
 
-3. **Sub-45-Second Total Review Latency**:
-   - Total tool execution time will be determined by the single slowest tool ($\sim 4–6$ seconds) rather than the sequential sum of all 15 tools.
-   - Eliminates queue starvation completely: AI reviews and tool runs execute on independent tracks, bringing 10-developer concurrent review turnaround back to **under 45 seconds**.
+3. **Instant Per-Tool UI Updates & Post-Completion PR Posting**:
+   - Each tool emits its `tool-<name>` `batch` event as soon as its Lambda + classification complete, updating LiveReview UI and `lrc ui` immediately.
+   - Retry hydration reads prior `review_events` so worker retries re-run only failed or incomplete tools.
+   - Provider PR/MR comment posting waits until **both** the AI review and `WaitForTools` finish, leaving existing git provider implementations untouched.
 
 ---
 

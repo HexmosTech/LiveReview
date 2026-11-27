@@ -542,6 +542,7 @@ func (s *ToolsStore) InsertToolResultEvent(ctx context.Context, reviewID, orgID,
 	var exitCode int
 	var stderr string
 	var loc int
+	var failureReason string
 
 	if strings.HasPrefix(trimmedJSON, "[") {
 		if err := json.Unmarshal(resultJSON, &parsedFindings); err != nil {
@@ -549,6 +550,7 @@ func (s *ToolsStore) InsertToolResultEvent(ctx context.Context, reviewID, orgID,
 			parsedFindings = []ToolFinding{}
 			stderr = fmt.Sprintf("failed to parse array findings: %v", err)
 			exitCode = -1
+			failureReason = stderr
 		} else if len(parsedFindings) > 0 {
 			exitCode = 1
 		} else {
@@ -556,20 +558,23 @@ func (s *ToolsStore) InsertToolResultEvent(ctx context.Context, reviewID, orgID,
 		}
 	} else {
 		type ToolLambdaResponse struct {
-			ExitCode    int             `json:"exit_code"`
-			Findings    json.RawMessage `json:"findings"`
-			LinesOfCode int             `json:"lines_of_code"`
-			Stderr      string          `json:"stderr"`
+			ExitCode      int             `json:"exit_code"`
+			Findings      json.RawMessage `json:"findings"`
+			LinesOfCode   int             `json:"lines_of_code"`
+			Stderr        string          `json:"stderr"`
+			FailureReason string          `json:"failure_reason,omitempty"`
 		}
 
 		var resp ToolLambdaResponse
 		if err := json.Unmarshal(resultJSON, &resp); err != nil {
 			stderr = fmt.Sprintf("failed to parse lambda response: %v. Raw: %s", err, string(resultJSON))
 			exitCode = -1
+			failureReason = stderr
 		} else {
 			exitCode = resp.ExitCode
 			stderr = resp.Stderr
 			loc = resp.LinesOfCode
+			failureReason = resp.FailureReason
 			if len(resp.Findings) > 0 {
 				if errFindings := json.Unmarshal(resp.Findings, &parsedFindings); errFindings != nil {
 					log.Printf("[WARN] StoreToolResultEvent: failed to unmarshal findings for tool %d: %v", toolID, errFindings)
@@ -588,12 +593,13 @@ func (s *ToolsStore) InsertToolResultEvent(ctx context.Context, reviewID, orgID,
 	}
 
 	eventData := ToolResultEventData{
-		ToolID:      toolID,
-		ToolName:    toolName,
-		ExitCode:    exitCode,
-		Findings:    parsedFindings,
-		LinesOfCode: loc,
-		Stderr:      stderr,
+		ToolID:        toolID,
+		ToolName:      toolName,
+		ExitCode:      exitCode,
+		Findings:      parsedFindings,
+		LinesOfCode:   loc,
+		Stderr:        stderr,
+		FailureReason: failureReason,
 	}
 
 	eventDataBytes, err := json.Marshal(eventData)
@@ -650,12 +656,13 @@ type ToolFinding struct {
 }
 
 type ToolResultEventData struct {
-	ToolID      int64         `json:"tool_id"`
-	ToolName    string        `json:"tool_name"`
-	ExitCode    int           `json:"exit_code"`
-	Findings    []ToolFinding `json:"findings"`
-	LinesOfCode int           `json:"lines_of_code"`
-	Stderr      string        `json:"stderr"`
+	ToolID        int64         `json:"tool_id"`
+	ToolName      string        `json:"tool_name"`
+	ExitCode      int           `json:"exit_code"`
+	Findings      []ToolFinding `json:"findings"`
+	LinesOfCode   int           `json:"lines_of_code"`
+	Stderr        string        `json:"stderr"`
+	FailureReason string        `json:"failure_reason,omitempty"`
 }
 
 func (s *ToolsStore) GetToolResultsForReview(ctx context.Context, reviewID int64) ([]ToolResultEventData, error) {

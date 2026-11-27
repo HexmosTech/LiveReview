@@ -212,6 +212,7 @@ type ReviewComment struct {
 	Source        string          `json:"source,omitempty"`
 	ToolName      string          `json:"tool_name,omitempty"`
 	ToolCategory  string          `json:"tool_category,omitempty"`
+	RuleID        string          `json:"rule_id,omitempty"`
 }
 
 // UnmarshalJSON supports unmarshaling from both snake_case and PascalCase/camelCase JSON keys.
