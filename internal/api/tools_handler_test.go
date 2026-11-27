@@ -249,7 +249,7 @@ func TestRepositoryToolsEndpoints_DBRoundTripAndOrgScoping(t *testing.T) {
 		t.Fatalf("expected %s to be enabled in GET response after PUT", toolName)
 	}
 
-	// 4. Wrong org returns 404 on both GET and PUT
+	// 4. Wrong org returns 404 on GET and preview
 	cWrong, recWrong := newTestEchoContext(http.MethodGet, "/api/v1/repositories/:repoId/tools", orgID+999999, []string{"repoId"}, []string{repoIDStr})
 	cWrong.Set(string(auth.PermissionContextKey), &auth.PermissionContext{OrgID: orgID + 999999, IsOwner: true})
 	if err := server.GetRepositoryTools(cWrong); err != nil {
@@ -257,5 +257,63 @@ func TestRepositoryToolsEndpoints_DBRoundTripAndOrgScoping(t *testing.T) {
 	}
 	if recWrong.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for wrong org, got %d", recWrong.Code)
+	}
+
+	// 5. Preview endpoint validates tools.toml against go-toml and reports unknown tools + errors
+	reqPrevBad := httptest.NewRequest(http.MethodPost, "/api/v1/repositories/"+repoIDStr+"/tools/preview", strings.NewReader(`{"tools_toml":"[ruff]\nenabled = maybe\n"}`))
+	reqPrevBad.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	recPrevBad := httptest.NewRecorder()
+	cPrevBad := e.NewContext(reqPrevBad, recPrevBad)
+	cPrevBad.SetParamNames("repoId")
+	cPrevBad.SetParamValues(repoIDStr)
+	cPrevBad.Set(string(auth.PermissionContextKey), &auth.PermissionContext{OrgID: orgID, IsMember: true})
+	if err := server.PreviewRepositoryTools(cPrevBad); err != nil {
+		t.Fatalf("PreviewRepositoryTools bad: %v", err)
+	}
+	if recPrevBad.Code != http.StatusOK {
+		t.Fatalf("expected 200 on preview, got %d: %s", recPrevBad.Code, recPrevBad.Body.String())
+	}
+	var prevResp struct {
+		Valid        bool     `json:"valid"`
+		Error        string   `json:"error"`
+		ErrorLine    int      `json:"error_line"`
+		UnknownTools []string `json:"unknown_tools"`
+	}
+	if err := json.Unmarshal(recPrevBad.Body.Bytes(), &prevResp); err != nil {
+		t.Fatalf("unmarshal prevBad: %v", err)
+	}
+	if prevResp.Valid || prevResp.ErrorLine != 2 || prevResp.Error == "" {
+		t.Fatalf("expected valid=false error_line=2, got %+v", prevResp)
+	}
+
+	reqPrevOk := httptest.NewRequest(http.MethodPost, "/api/v1/repositories/"+repoIDStr+"/tools/preview", strings.NewReader(`{"tools_toml":"[`+toolName+`]\nenabled = true\n"}`))
+	reqPrevOk.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	recPrevOk := httptest.NewRecorder()
+	cPrevOk := e.NewContext(reqPrevOk, recPrevOk)
+	cPrevOk.SetParamNames("repoId")
+	cPrevOk.SetParamValues(repoIDStr)
+	cPrevOk.Set(string(auth.PermissionContextKey), &auth.PermissionContext{OrgID: orgID, IsMember: true})
+	if err := server.PreviewRepositoryTools(cPrevOk); err != nil {
+		t.Fatalf("PreviewRepositoryTools ok: %v", err)
+	}
+	if err := json.Unmarshal(recPrevOk.Body.Bytes(), &prevResp); err != nil {
+		t.Fatalf("unmarshal prevOk: %v", err)
+	}
+	if !prevResp.Valid || len(prevResp.UnknownTools) != 0 {
+		t.Fatalf("expected valid=true no unknown tools, got %+v", prevResp)
+	}
+
+	reqPrevWrong := httptest.NewRequest(http.MethodPost, "/api/v1/repositories/"+repoIDStr+"/tools/preview", strings.NewReader(`{"tools_toml":"[ruff]\nenabled = true\n"}`))
+	reqPrevWrong.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	recPrevWrong := httptest.NewRecorder()
+	cPrevWrong := e.NewContext(reqPrevWrong, recPrevWrong)
+	cPrevWrong.SetParamNames("repoId")
+	cPrevWrong.SetParamValues(repoIDStr)
+	cPrevWrong.Set(string(auth.PermissionContextKey), &auth.PermissionContext{OrgID: orgID + 999999, IsMember: true})
+	if err := server.PreviewRepositoryTools(cPrevWrong); err != nil {
+		t.Fatalf("PreviewRepositoryTools wrong org: %v", err)
+	}
+	if recPrevWrong.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for wrong org preview, got %d", recPrevWrong.Code)
 	}
 }

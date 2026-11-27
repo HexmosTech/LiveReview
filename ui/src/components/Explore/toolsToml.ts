@@ -200,6 +200,8 @@ function parseSectionHeader(rawHeader: string): { isToolsRoot?: boolean; toolNam
 export function parseToolsTomlDetailed(text: string): ToolsTomlParseResult {
   const lines = text.split(/\r?\n/);
   const rules: Record<string, ParsedToolRule> = {};
+  const seenSections = new Set<string>();
+  const seenKeysBySection = new Map<string, Set<string>>();
   let currentSection: { isToolsRoot?: boolean; toolName?: string } | null = null;
   let hasFileFilters = false;
 
@@ -226,6 +228,12 @@ export function parseToolsTomlDetailed(text: string): ToolsTomlParseResult {
       if (!parsedHeader) {
         return fail(lineNum, `Invalid section name ${cleaned}`);
       }
+      const sectionKey = parsedHeader.isToolsRoot ? '__tools__' : parsedHeader.toolName!;
+      if (seenSections.has(sectionKey)) {
+        return fail(lineNum, `Duplicate section ${cleaned}`);
+      }
+      seenSections.add(sectionKey);
+      seenKeysBySection.set(sectionKey, new Set<string>());
       currentSection = parsedHeader;
       if (parsedHeader.toolName && !(parsedHeader.toolName in rules)) {
         rules[parsedHeader.toolName] = {};
@@ -272,6 +280,17 @@ export function parseToolsTomlDetailed(text: string): ToolsTomlParseResult {
         );
       }
       const toolKey = key.toLowerCase();
+      if (currentSection?.isToolsRoot && seenSections.has(toolKey)) {
+        return fail(lineNum, `Duplicate configuration for "${toolKey}" (already defined as [${toolKey}])`);
+      }
+      const rootScope = currentSection?.isToolsRoot ? '__tools__' : '__root__';
+      const rootSeen = seenKeysBySection.get(rootScope) ?? new Set<string>();
+      if (rootSeen.has(toolKey)) {
+        return fail(lineNum, `Duplicate key "${key}"`);
+      }
+      rootSeen.add(toolKey);
+      seenKeysBySection.set(rootScope, rootSeen);
+      if (currentSection?.isToolsRoot) seenSections.add(toolKey);
       rules[toolKey] = { ...(rules[toolKey] || {}), enabled: rawValue === 'true' };
       continue;
     }
@@ -279,6 +298,12 @@ export function parseToolsTomlDetailed(text: string): ToolsTomlParseResult {
     const toolName = currentSection.toolName!;
     const rule = (rules[toolName] = rules[toolName] || {});
     const lowerKey = key.toLowerCase();
+    const secKeys = seenKeysBySection.get(toolName) ?? new Set<string>();
+    if (secKeys.has(lowerKey)) {
+      return fail(lineNum, `Duplicate key "${lowerKey}" in [${toolName}]`);
+    }
+    secKeys.add(lowerKey);
+    seenKeysBySection.set(toolName, secKeys);
 
     if (lowerKey === 'enabled') {
       if (rawValue !== 'true' && rawValue !== 'false') {
@@ -488,7 +513,10 @@ export function evaluateToolForPaths(
 }
 
 /** Build a rich, static-tool-specific LLM prompt grouped by category with include/exclude examples. */
-export function buildTomlLLMPrompt(tools: RepoToolView[]): string {
+export function buildTomlLLMPrompt(
+  tools: RepoToolView[],
+  options?: { requirements?: string; repoName?: string; currentToml?: string },
+): string {
   const byCategory: Record<string, RepoToolView[]> = {};
   tools.forEach((t) => {
     const cat = t.category?.trim() || 'General';
@@ -511,11 +539,23 @@ export function buildTomlLLMPrompt(tools: RepoToolView[]): string {
         .join('\n\n')
     : '(no tools registered in catalog yet)';
 
+  const req = options?.requirements?.trim();
+  const repoLine = options?.repoName ? `Repository: ${options.repoName}\n` : '';
+  const cleanedCurrentToml = options?.currentToml
+    ?.split(/\r?\n/)
+    .filter((l) => !l.trim().startsWith('# No tools '))
+    .join('\n')
+    .trim();
+
   return [
-    "I'm configuring static analysis tools for a LiveReview repository using tools.toml format.",
+    `I'm configuring SAST static analysis tools for a LiveReview repository using tools.toml format.`,
+    ...(repoLine ? [repoLine.trimEnd()] : []),
     '',
     'Available static analysis tools by category:',
     catalogLines,
+    ...(cleanedCurrentToml
+      ? ['', 'Current tools.toml:', cleanedCurrentToml]
+      : []),
     '',
     'Supported schema (per-tool TOML sections):',
     '[tool-name]',
@@ -525,16 +565,17 @@ export function buildTomlLLMPrompt(tools: RepoToolView[]): string {
     '',
     'Rules & best practices:',
     '- Use ONLY exact tool names listed above.',
-    '- For beta, each tool supports `enabled`, `include`, and `exclude` only (no extra rule keys).',
+    '- ONLY include [tool-name] sections for tools that should be ENABLED (enabled = true). Any tool you omit stays disabled automatically — NEVER emit `enabled = false` blocks for unused tools.',
+    '- Each tool supports `enabled`, `include`, and `exclude` only (no extra rule keys).',
     '- If a PR only touches files that fail `include` or match `exclude`, LiveReview skips that tool and charges 0 credits.',
-    '- Keep high-cost tools (e.g. 12.0x scanners) scoped to relevant source paths and exclude generated/test/vendor directories when appropriate.',
-    '- Any tool omitted from the configuration stays disabled for this repository.',
+    '- Keep high-cost tools (e.g. 12.0x+ scanners) scoped to relevant source paths and exclude generated/test/vendor directories when appropriate.',
     '',
-    'My repository & requirements:',
-    '<describe your tech stack, directories, and which scanners/linters you want, e.g.:',
-    '  "Python backend under api/, React TypeScript frontend under web/, Terraform under infra/.',
-    '   Run ruff/bandit on api/ excluding tests, eslint on web/ excluding dist/, tfsec on infra/, and gitleaks everywhere">',
+    req
+      ? `What I want to configure:\n${req}`
+      : 'What I want to configure: <describe your condition/tech stack here, e.g. "Python API under api/, React TypeScript under web/, Terraform under infra/. Run ruff/bandit on api/ excluding tests/**, eslint on web/ excluding dist/**, tfsec on infra/, and gitleaks everywhere">',
     '',
-    'Please return ONLY valid TOML (no markdown code fences, no explanation).',
+    req
+      ? 'Please return ONLY valid TOML for the tools to enable (no markdown code fences, no explanation, and do not list disabled tools).'
+      : 'If I replaced the <describe ...> placeholder above, return ONLY valid TOML for the tools to enable (no markdown code fences, no explanation, and never output all tools with `enabled = false`). If I left the <describe ...> placeholder unchanged, ask me to describe my repository tech stack and conditions first before generating any TOML.',
   ].join('\n');
 }

@@ -410,6 +410,8 @@ const RepoToolsSection: React.FC<{ repo: Repository }> = ({ repo }) => {
       {/* Priority B: Simple table (with strict toggles) OR Advanced CI/CD-style tools.toml editor */}
       {viewMode === 'advanced' ? (
         <ToolsTomlEditor
+          repoId={repo.id}
+          repoName={repo.full_name}
           tools={tools}
           draftEnabled={draftEnabled}
           draftConfigs={draftConfigs}

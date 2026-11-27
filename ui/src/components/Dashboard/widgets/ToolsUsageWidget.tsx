@@ -68,7 +68,7 @@ export const ToolsUsageWidget: React.FC = () => {
                     variant="ghost"
                     size="sm"
                     className="text-xs text-blue-400 hover:text-blue-300"
-                    onClick={() => navigate('/settings#third-party-tools')}
+                    onClick={() => navigate('/settings#sast-tools')}
                 >
                     Configure →
                 </Button>

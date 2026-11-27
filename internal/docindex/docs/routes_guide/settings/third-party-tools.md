@@ -1,6 +1,6 @@
 # Settings → SAST Tools
 
-**Route:** `/settings#third-party-tools`
+**Route:** `/settings#sast-tools`
 **Component:** `ui/src/pages/Settings/ThirdPartyToolsTab.tsx`
 **Who sees it:** Organization **owners** (and super admins) on **paid plans**, **cloud mode only** — gated by `isCloudMode() && Boolean(isPaidPlan) && (isSuperAdmin || currentOrg?.role === 'owner')` in `Settings.tsx`. In self-hosted deployments or on free plans, the tab is hidden and the backend endpoints return `403 Forbidden`.
 

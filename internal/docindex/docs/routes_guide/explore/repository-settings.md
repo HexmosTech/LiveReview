@@ -36,7 +36,7 @@ configuring repository SAST Tools) needs an org owner or super admin.
   and cross-repo link types the analysis supports (best/good/basic, plus
   HTTP, gRPC, GraphQL, tRPC and async/channel links). Org owners and super
   admins can add or remove links; any member can view the list.
-- **SAST Tools** (`#third-party-tools`) — visible on Cloud paid plans
+- **SAST Tools** (`#sast-tools`) — visible on Cloud paid plans
   only. Lets owners configure which static analysis tools run during **pull
   request reviews** on this repository (persisted under
   `repositories.settings->'tools'`), with two synchronized modes:

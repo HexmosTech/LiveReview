@@ -116,9 +116,29 @@ export interface RepositoryToolsResponse {
   tools: RepoToolView[];
 }
 
+export interface ToolsTomlPreviewResponse {
+  valid: boolean;
+  error?: string;
+  error_line?: number;
+  error_column?: number;
+  enabled_map: Record<string, boolean>;
+  rule_configs: Record<string, RepoToolRuleConfig>;
+  unknown_tools: string[];
+}
+
 /** GET /api/v1/repositories/:repoId/tools - repository PR-only tool settings merged with org defaults. */
 export const getRepositoryTools = async (repoId: number): Promise<RepositoryToolsResponse> => {
   return apiClient.get<RepositoryToolsResponse>(`/api/v1/repositories/${repoId}/tools`);
+};
+
+/** POST /api/v1/repositories/:repoId/tools/preview - validates unsaved tools.toml text against backend TOML parser. */
+export const previewRepositoryTools = async (
+  repoId: number,
+  toolsToml: string,
+): Promise<ToolsTomlPreviewResponse> => {
+  return apiClient.post<ToolsTomlPreviewResponse>(`/api/v1/repositories/${repoId}/tools/preview`, {
+    tools_toml: toolsToml,
+  });
 };
 
 /** PUT /api/v1/repositories/:repoId/tools - saves PR-only tool mode ('inherit' or 'custom'), tool overrides, and optional include/exclude globs. */

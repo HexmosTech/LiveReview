@@ -1762,6 +1762,14 @@ func (s *Server) setupRoutes() {
 	repositoriesGroup.GET("/:repoId/cache", s.GetRepositoryCache)
 	repositoriesGroup.DELETE("/:repoId/cache", s.ClearRepositoryCache)
 	repositoriesGroup.GET("/:repoId/tools", s.GetRepositoryTools)
+	s.audited(repositoriesGroup, echo.POST, "/:repoId/tools/preview", auditlog.Spec{
+		Action:          auditlog.ActionRepositoryToolsPreview,
+		Category:        auditlog.CategoryRepository,
+		ResourceType:    "repository",
+		ResourceIDParam: "repoId",
+		Severity:        auditlog.SeverityInfo,
+		Capture:         auditlog.CaptureAttemptsOnly,
+	}, s.PreviewRepositoryTools)
 	s.audited(repositoriesGroup, echo.PUT, "/:repoId/tools", auditlog.Spec{
 		Action:          auditlog.ActionRepositoryToolsUpdate,
 		Category:        auditlog.CategoryRepository,

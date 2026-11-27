@@ -99,6 +99,7 @@ Generated from `internal/auditlog/catalog.go`.
 | `repository.relation.remove` | `repository` | repository | info | Related repo removed | A related-repo link was removed. |
 | `repository.cross_repo.query` | `repository` | review | info | Cross-repo impact queried | A local review asked for route matches in its related repositories. |
 | `repository.sync` | `repository` | repository | info | Repository synced | A repository sync ran. |
+| `repository.tools.preview` | `repository` | repository | info | Repository tools previewed | Static analysis tools.toml syntax was validated in the editor. |
 | `repository.tools.update` | `repository` | repository | warning | Repository tools updated | Static analysis tool settings for a repository were changed. |
 | `repository.update` | `repository` | repository | info | Repository updated | A repository's settings were changed. |
 | `review.cancel` | `review` | review | warning | Review cancelled | A running review was cancelled. |

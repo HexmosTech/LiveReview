@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/lrcconfig"
 	"github.com/livereview/storage/tools"
 )
 
@@ -186,5 +187,66 @@ func (s *Server) UpdateRepositoryTools(c echo.Context) error {
 		"repository_id": repoID,
 		"mode":          effectiveMode,
 		"tools":         repoTools,
+	})
+}
+
+// PreviewRepositoryTools handles POST /api/v1/repositories/:repoId/tools/preview
+// Validates unsaved `.lrc/policy/tools.toml` content with the server's TOML parser
+// and returns unknown tool names against the repository's catalog. Read-only.
+func (s *Server) PreviewRepositoryTools(c echo.Context) error {
+	if !s.deploymentConfig.IsCloud {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "SAST tools are only available in cloud mode"})
+	}
+
+	pc := auth.GetPermissionContext(c)
+	if pc == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Authentication required"})
+	}
+	orgID := pc.GetOrgID()
+
+	repoID, err := strconv.ParseInt(c.Param("repoId"), 10, 64)
+	if err != nil || repoID <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid repoId"})
+	}
+
+	var req struct {
+		ToolsToml string `json:"tools_toml"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	}
+
+	store := tools.NewToolsStore(s.db)
+	_, repoTools, err := store.GetAvailableToolsForRepo(c.Request().Context(), orgID, repoID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "Repository not found"})
+		}
+		log.Printf("[ERROR] PreviewRepositoryTools(org=%d repo=%d): %v", orgID, repoID, err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
+	}
+
+	validation := lrcconfig.ValidateToolsToml(req.ToolsToml)
+	unknownTools := make([]string, 0)
+	if validation.Valid {
+		known := make(map[string]struct{}, len(repoTools))
+		for _, t := range repoTools {
+			known[strings.ToLower(t.Name)] = struct{}{}
+		}
+		for name := range validation.EnabledMap {
+			if _, ok := known[name]; !ok {
+				unknownTools = append(unknownTools, name)
+			}
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"valid":         validation.Valid,
+		"error":         validation.Error,
+		"error_line":    validation.ErrorLine,
+		"error_column":  validation.ErrorColumn,
+		"enabled_map":   validation.EnabledMap,
+		"rule_configs":  validation.RuleConfigs,
+		"unknown_tools": unknownTools,
 	})
 }

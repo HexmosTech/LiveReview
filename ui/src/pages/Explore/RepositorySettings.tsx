@@ -30,12 +30,19 @@ const RepositorySettings: React.FC = () => {
   const sections = [
     ...BASE_SECTIONS,
     ...(showToolsSection
-      ? [{ id: 'third-party-tools', name: 'SAST Tools', icon: <Icons.Tools /> }]
+      ? [{ id: 'sast-tools', name: 'SAST Tools', icon: <Icons.Tools /> }]
       : []),
   ];
 
   const requested = location.hash.substring(1);
-  const active = sections.some((s) => s.id === requested) ? requested : sections[0].id;
+  const normalizedRequested = requested === 'third-party-tools' ? 'sast-tools' : requested;
+  const active = sections.some((s) => s.id === normalizedRequested) ? normalizedRequested : sections[0].id;
+
+  useEffect(() => {
+    if (requested === 'third-party-tools') {
+      navigate('#sast-tools', { replace: true });
+    }
+  }, [requested, navigate]);
 
   useEffect(() => {
     setError(false);
@@ -88,7 +95,7 @@ const RepositorySettings: React.FC = () => {
             {active === 'repo-cache' && <RepoCacheSection repo={repo} />}
             {active === 'auto-approve' && <RepoAutoApproveSection repositoryId={repo.id} />}
             {active === 'related-repos' && <RelatedReposSection repo={repo} />}
-            {active === 'third-party-tools' && showToolsSection && <RepoToolsSection repo={repo} />}
+            {active === 'sast-tools' && showToolsSection && <RepoToolsSection repo={repo} />}
           </Card>
         </div>
       </div>

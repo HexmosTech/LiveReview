@@ -282,7 +282,12 @@ const Settings = () => {
     
     // Check if we're on a subscription sub-route
     const isSubscriptionRoute = location.pathname.startsWith('/settings-subscriptions-');
-    const activeTab = isSubscriptionRoute ? 'subscriptions' : (location.hash.substring(1) || 'general');
+    const rawHashTab = location.hash.substring(1);
+    const activeTab = isSubscriptionRoute
+        ? 'subscriptions'
+        : rawHashTab === 'third-party-tools'
+            ? 'sast-tools'
+            : rawHashTab || 'general';
     
     const [productionUrl, setProductionUrl] = useState('');
     const [showSaved, setShowSaved] = useState(false);
@@ -407,7 +412,7 @@ const Settings = () => {
         // SAST Tools tab visible only in cloud mode for org owners on paid plans
         // (super admins may access every owner surface — mirrors RequireOrgOwner)
         ...(showToolsTab ? [{
-            id: 'third-party-tools',
+            id: 'sast-tools',
             name: 'SAST Tools',
             icon: <Icons.Tools />
         }] : []),
@@ -420,6 +425,10 @@ const Settings = () => {
     useEffect(() => {
         if (location.hash === '#compaction') {
             navigate('#storage', { replace: true });
+            return;
+        }
+        if (location.hash === '#third-party-tools') {
+            navigate('#sast-tools', { replace: true });
             return;
         }
         if (!isSubscriptionRoute && !location.hash && firstTab) {
@@ -879,12 +888,12 @@ const Settings = () => {
                         </Card>
                     )}
 
-                    {activeTab === 'third-party-tools' && isCloudMode() && showToolsTab && (
+                    {activeTab === 'sast-tools' && isCloudMode() && showToolsTab && (
                         <Card>
                             <ThirdPartyToolsTab />
                         </Card>
                     )}
-                    {activeTab === 'third-party-tools' && isCloudMode() && !showToolsTab && (
+                    {activeTab === 'sast-tools' && isCloudMode() && !showToolsTab && (
                         <Card>
                             <div className="p-4 text-sm text-slate-400">
                                 SAST Tools are only available to organization owners on paid plans.

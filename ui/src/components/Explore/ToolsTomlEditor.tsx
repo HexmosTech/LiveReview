@@ -1,12 +1,16 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Badge, Button, Icons } from '../UIPrimitives';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Badge, Button, Icons, Spinner } from '../UIPrimitives';
 import {
-  FloatingPanel,
   ReferenceChip,
   ScreenPoint,
   getCaretScreenPoint,
 } from '../../pages/CiRulesets/shared';
-import { RepoToolRuleConfig, RepoToolView } from '../../api/repositories';
+import {
+  previewRepositoryTools,
+  RepoToolRuleConfig,
+  RepoToolView,
+} from '../../api/repositories';
 import { ToolsTomlQuickHelp } from './ToolsTomlQuickHelp';
 import {
   ParsedToolRule,
@@ -36,6 +40,8 @@ const EXCLUDE_SUGGESTIONS = [
   '**/*.md',
 ];
 
+const LIVE_TABLE_PAGE_SIZE = 5;
+
 const DEFAULT_SAMPLE_PATHS = [
   'src/api/auth.py',
   'tests/test_auth.py',
@@ -45,6 +51,64 @@ const DEFAULT_SAMPLE_PATHS = [
   'README.md',
 ].join('\n');
 
+// Document-anchored portal popover for SAST Tools so the panel stays attached
+// to the control/row where it was opened rather than following viewport scroll.
+const ToolsFloatingPanel: React.FC<{
+  open: boolean;
+  point: ScreenPoint | null;
+  onClose: () => void;
+  widthPx: number;
+  children: React.ReactNode;
+}> = ({ open, point, onClose, widthPx, children }) => {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [style, setStyle] = useState<{ top: number; left: number }>({ top: -9999, left: -9999 });
+
+  useLayoutEffect(() => {
+    if (!open || !point || !panelRef.current) return;
+    const rect = panelRef.current.getBoundingClientRect();
+    const margin = 12;
+    const scrollX = window.scrollX || window.pageXOffset || 0;
+    const scrollY = window.scrollY || window.pageYOffset || 0;
+    let left = point.x;
+    let top = point.y;
+    if (left + rect.width > window.innerWidth - margin) left = window.innerWidth - rect.width - margin;
+    if (left < margin) left = margin;
+    if (top + rect.height > window.innerHeight - margin) {
+      const above = point.y - rect.height - 28;
+      top = above > margin ? above : Math.max(margin, window.innerHeight - rect.height - margin);
+    }
+    setStyle({ top: top + scrollY, left: left + scrollX });
+  }, [open, point]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onMouseDown = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return createPortal(
+    <div
+      ref={panelRef}
+      style={{ position: 'absolute', top: style.top, left: style.left, width: widthPx }}
+      className="z-[9999] max-w-[92vw] rounded-lg border border-slate-600 bg-slate-800 shadow-2xl max-h-[70vh] overflow-y-auto"
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+};
+
 // ---- Popup UI: Search by category/tool + Configure enabled/include/exclude ----
 
 const ConfigureToolPopup: React.FC<{
@@ -53,7 +117,6 @@ const ConfigureToolPopup: React.FC<{
   currentRules: Record<string, ParsedToolRule>;
   currentEnabledMap: Record<string, boolean>;
   onApplyTool: (toolName: string, enabled: boolean, config: RepoToolRuleConfig) => void;
-  onEnableCategory: (categoryTools: RepoToolView[]) => void;
   onClose: () => void;
 }> = ({
   tools,
@@ -61,12 +124,11 @@ const ConfigureToolPopup: React.FC<{
   currentRules,
   currentEnabledMap,
   onApplyTool,
-  onEnableCategory,
   onClose,
 }) => {
   const [filter, setFilter] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [selectedTool, setSelectedTool] = useState<RepoToolView | null>(initialTool);
+  const selectedTool = initialTool;
 
   const [editEnabled, setEditEnabled] = useState(true);
   const [includeInput, setIncludeInput] = useState('');
@@ -160,13 +222,6 @@ const ConfigureToolPopup: React.FC<{
       <div className="p-4 space-y-4">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <button
-              type="button"
-              onClick={() => setSelectedTool(null)}
-              className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded border border-slate-700 hover:border-slate-500"
-            >
-              ← All tools
-            </button>
             <h3 className="text-sm font-semibold text-white truncate">{selectedTool.name}</h3>
             {selectedTool.category && (
               <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-300">
@@ -368,28 +423,24 @@ const ConfigureToolPopup: React.FC<{
               <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
                 {category}
               </h4>
-              <button
-                type="button"
-                onClick={() => {
-                  onEnableCategory(items);
-                  onClose();
-                }}
-                className="text-[11px] text-blue-400 hover:text-blue-300 hover:underline"
-              >
-                Enable all {items.length}
-              </button>
             </div>
             <div className="flex flex-wrap gap-2">
               {items.map((tool) => {
                 const key = tool.name.toLowerCase();
                 const isActive = Boolean(currentEnabledMap[key]);
+                const existingRule = currentRules[key];
                 return (
                   <ReferenceChip
                     key={tool.id}
                     active={isActive}
                     label={`${tool.name} · ${Number(tool.multiplier).toFixed(1)}×`}
-                    title={`Configure ${tool.name} (${tool.use_case || tool.description})`}
-                    onClick={() => setSelectedTool(tool)}
+                    title={`${isActive ? 'Disable' : 'Enable'} ${tool.name} (${tool.use_case || tool.description})`}
+                    onClick={() => {
+                      onApplyTool(tool.name, !isActive, {
+                        ...(existingRule?.include?.length ? { include: existingRule.include } : {}),
+                        ...(existingRule?.exclude?.length ? { exclude: existingRule.exclude } : {}),
+                      });
+                    }}
                   />
                 );
               })}
@@ -411,9 +462,11 @@ const ConfigureToolPopup: React.FC<{
 
 const LLMHelperContent: React.FC<{
   prompt: string;
+  requirements: string;
+  onRequirementsChange: (next: string) => void;
   onCopy: () => void;
   onClose: () => void;
-}> = ({ prompt, onCopy, onClose }) => (
+}> = ({ prompt, requirements, onRequirementsChange, onCopy, onClose }) => (
   <div className="p-4">
     <div className="flex items-center justify-between mb-3">
       <h3 className="text-sm font-semibold text-white">Ask an LLM to write it</h3>
@@ -426,9 +479,17 @@ const LLMHelperContent: React.FC<{
         <Icons.Close />
       </button>
     </div>
-    <p className="text-xs text-slate-400 mb-3">
-      Copy the prompt (all categories, tools, multipliers, and include/exclude syntax), then open a chat and paste it with Ctrl+V / Cmd+V.
+    <p className="text-xs text-slate-400 mb-2.5">
+      Describe your tech stack or rules (optional), copy the prompt, then open a chat and paste it with Ctrl+V / Cmd+V.
     </p>
+    <textarea
+      rows={2}
+      aria-label="Describe what you want to configure"
+      className="w-full rounded-lg border border-slate-600 bg-slate-900 text-xs text-white px-3 py-2 outline-none focus:border-blue-500 placeholder:text-slate-500 mb-3 resize-y"
+      placeholder='e.g. Python API + React TS, run ruff/eslint/bandit excluding tests/** and always scan secrets'
+      value={requirements}
+      onChange={(e) => onRequirementsChange(e.target.value)}
+    />
     <div className="mb-3">
       <Button size="sm" variant="primary" icon={<Icons.Copy />} onClick={onCopy}>
         Copy prompt
@@ -457,6 +518,8 @@ const LLMHelperContent: React.FC<{
 // ---- Main component ---------------------------------------------------------
 
 interface ToolsTomlEditorProps {
+  repoId?: number;
+  repoName?: string;
   tools: RepoToolView[];
   draftEnabled: Record<string, boolean>;
   draftConfigs: Record<string, RepoToolRuleConfig>;
@@ -470,6 +533,8 @@ interface ToolsTomlEditorProps {
 }
 
 const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
+  repoId,
+  repoName,
   tools,
   draftEnabled,
   draftConfigs,
@@ -483,10 +548,19 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
   );
   const [quickHelpOpen, setQuickHelpOpen] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
+  const [llmRequirements, setLlmRequirements] = useState('');
   const [copiedToml, setCopiedToml] = useState(false);
   const [resultTab, setResultTab] = useState<'table' | 'paths'>('table');
+  const [livePage, setLivePage] = useState(1);
   const [samplePathsText, setSamplePathsText] = useState(DEFAULT_SAMPLE_PATHS);
+  const [backendPreview, setBackendPreview] = useState<{
+    loading: boolean;
+    error?: string;
+    unknownTools?: string[];
+  }>({ loading: false });
 
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewSeqRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const llmBtnRef = useRef<HTMLSpanElement>(null);
   const [popupState, setPopupState] = useState<{
@@ -502,7 +576,63 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
   }, [syncVersion]);
 
   const parsed = useMemo(() => parseToolsTomlDetailed(tomlText), [tomlText]);
-  const llmPrompt = useMemo(() => buildTomlLLMPrompt(tools), [tools]);
+  const llmPrompt = useMemo(
+    () => buildTomlLLMPrompt(tools, { requirements: llmRequirements, repoName, currentToml: tomlText }),
+    [tools, llmRequirements, repoName, tomlText],
+  );
+
+  // Debounced backend TOML validation matching CiRulesetEditor's 350ms jq checker.
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    let cancelled = false;
+    if (!repoId || typeof previewRepositoryTools !== 'function') {
+      setBackendPreview({ loading: false });
+      return;
+    }
+    if (!parsed.valid) {
+      previewSeqRef.current++;
+      setBackendPreview({ loading: false });
+      return;
+    }
+
+    setBackendPreview((prev) => (prev.loading || prev.error ? { loading: false } : prev));
+    const seq = ++previewSeqRef.current;
+    debounceRef.current = setTimeout(() => {
+      if (cancelled || previewSeqRef.current !== seq) return;
+      setBackendPreview((prev) => ({ ...prev, loading: true }));
+      Promise.resolve(previewRepositoryTools(repoId, tomlText))
+        .then((res) => {
+          if (cancelled || previewSeqRef.current !== seq) return;
+          if (!res) {
+            setBackendPreview({ loading: false });
+            return;
+          }
+          if (!res.valid) {
+            setBackendPreview({
+              loading: false,
+              error: res.error || 'Invalid tools.toml syntax',
+              unknownTools: res.unknown_tools,
+            });
+            onTomlStateChange(null);
+          } else {
+            setBackendPreview({
+              loading: false,
+              unknownTools: res.unknown_tools,
+            });
+          }
+        })
+        .catch(() => {
+          if (cancelled || previewSeqRef.current !== seq) return;
+          setBackendPreview({ loading: false });
+        });
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoId, tomlText, parsed.valid]);
 
   const catalogByLower = useMemo(() => {
     const m = new Map<string, RepoToolView>();
@@ -511,8 +641,8 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
   }, [tools]);
 
   const unknownTools = useMemo(
-    () => Object.keys(parsed.rules).filter((name) => !catalogByLower.has(name)),
-    [parsed.rules, catalogByLower],
+    () => backendPreview.unknownTools ?? Object.keys(parsed.rules).filter((name) => !catalogByLower.has(name)),
+    [backendPreview.unknownTools, parsed.rules, catalogByLower],
   );
 
   const samplePaths = useMemo(
@@ -546,6 +676,12 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
 
   const activeRows = liveRows.filter((r) => r.enabled);
   const activeMultiplier = activeRows.reduce((sum, r) => sum + Number(r.tool.multiplier), 0);
+  const totalLivePages = Math.ceil(liveRows.length / LIVE_TABLE_PAGE_SIZE);
+  const activeLivePage = Math.min(livePage, Math.max(1, totalLivePages));
+  const pagedLiveRows = liveRows.slice(
+    (activeLivePage - 1) * LIVE_TABLE_PAGE_SIZE,
+    activeLivePage * LIVE_TABLE_PAGE_SIZE,
+  );
 
   const updateText = (next: string) => {
     setTomlText(next);
@@ -629,18 +765,6 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
     updateText(next);
   };
 
-  const handleEnableCategoryFromPopup = (catTools: RepoToolView[]) => {
-    let next = tomlText;
-    catTools.forEach((t) => {
-      const existing = parsed.valid ? parsed.rules[t.name.toLowerCase()] : undefined;
-      next = upsertToolSectionInToml(next, t.name, true, {
-        ...(existing?.include ? { include: existing.include } : {}),
-        ...(existing?.exclude ? { exclude: existing.exclude } : {}),
-      });
-    });
-    updateText(next);
-  };
-
   const applyPreset = (
     preset: 'security' | 'secrets' | 'linters' | 'exclude_tests' | 'all_on' | 'clear',
   ) => {
@@ -685,7 +809,8 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
     updateText(toolsToToml(tools, map, parsed.valid ? parsed.ruleConfigs : draftConfigs, { configuredOnly: true }));
   };
 
-  const isInvalid = !parsed.valid;
+  const effectiveError = !parsed.valid ? parsed.error : backendPreview.error;
+  const isInvalid = Boolean(effectiveError);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -695,7 +820,7 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
           <label className="block text-sm font-medium text-slate-300 mb-1.5">
             SAST tools configuration
           </label>
-          <div className="flex items-center gap-2 bg-slate-900/60 border border-slate-600 border-b-0 rounded-t-lg px-3 py-2 flex-wrap">
+          <div className="flex items-center gap-2 bg-slate-900/80 border border-slate-700 border-b-0 rounded-t-lg px-3 py-2 flex-wrap">
             <button
               type="button"
               disabled={!canEdit || saving}
@@ -743,12 +868,12 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
             readOnly={!canEdit || saving}
             aria-label="tools.toml editor"
             aria-invalid={isInvalid}
-            className={`w-full rounded-b-lg border bg-slate-700 text-white outline-none px-4 py-3 font-mono text-sm resize-y ${
+            className={`w-full rounded-b-lg border bg-slate-950/90 text-slate-100 leading-relaxed caret-violet-400 outline-none px-4 py-3 font-mono text-sm resize-y ${
               !canEdit ? 'opacity-80 cursor-not-allowed' : ''
             } ${
               isInvalid
-                ? 'border-red-500 focus:border-red-400 focus:ring-2 focus:ring-red-400'
-                : 'border-slate-600 focus:border-blue-500 focus:ring-2 focus:ring-blue-400'
+                ? 'border-red-500 focus:border-red-400 focus:ring-2 focus:ring-red-400/50'
+                : 'border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/40'
             }`}
             style={{ minHeight: '11rem' }}
             rows={10}
@@ -765,7 +890,7 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
 
           <p className={`text-xs mt-1.5 ${isInvalid ? 'text-red-400' : 'text-slate-500'}`}>
             {isInvalid
-              ? `Invalid TOML — ${parsed.error}`
+              ? `Invalid TOML — ${effectiveError}`
               : 'Configure enabled tools and optional include/exclude globs. Live table below updates as you type.'}
           </p>
 
@@ -824,12 +949,20 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
               <button
                 type="button"
                 onClick={() => setResultTab('table')}
-                className={`pb-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                className={`flex items-center gap-2 pb-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
                   resultTab === 'table'
                     ? 'border-blue-500 text-white'
                     : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
+                {backendPreview.loading ? (
+                  <Spinner size="sm" />
+                ) : (
+                  <span
+                    className={`w-2 h-2 rounded-full ${isInvalid ? 'bg-amber-500' : 'bg-green-500'}`}
+                    title={isInvalid ? effectiveError : 'Valid tools.toml'}
+                  />
+                )}
                 Live table ({activeRows.length}/{tools.length})
               </button>
               <button
@@ -846,6 +979,7 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
             </div>
 
             <div className="flex items-center gap-3">
+              {backendPreview.loading && <Spinner size="sm" />}
               <span className="text-xs text-slate-400 tabular-nums">
                 {activeMultiplier.toFixed(1)}× multiplier
               </span>
@@ -869,8 +1003,9 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
           )}
 
           {isInvalid ? (
-            <div className="rounded-lg border border-red-500/40 bg-red-950/30 px-3 py-2.5 text-xs text-red-300">
-              {parsed.error}
+            <div className="flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-950/30 px-3 py-2.5">
+              <Badge variant="warning">ERROR</Badge>
+              <span className="text-sm text-amber-300">{effectiveError}</span>
             </div>
           ) : resultTab === 'table' ? (
             liveRows.length === 0 ? (
@@ -878,94 +1013,143 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
                 No tools configured yet. Click <span className="text-slate-200 font-medium">Configure tool</span> (Ctrl+Space) or pick a preset above.
               </div>
             ) : (
-              <div className="overflow-x-auto border border-slate-700/80 rounded-xl bg-slate-900/40 max-h-72 overflow-y-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead className="sticky top-0 bg-slate-800/95 border-b border-slate-700">
-                    <tr>
-                      <th className="px-3.5 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400">Tool</th>
-                      <th className="px-3.5 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400">Category</th>
-                      <th className="px-3.5 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400">Include</th>
-                      <th className="px-3.5 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400">Exclude</th>
-                      <th className="px-3.5 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 text-right">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800 text-sm">
-                    {liveRows.map(({ tool, rule, enabled }) => (
-                      <tr
-                        key={tool.id}
-                        onClick={(e) => canEdit && openPopup(tool, e.currentTarget)}
-                        className={`transition-colors ${
-                          canEdit ? 'cursor-pointer hover:bg-slate-800/50' : ''
-                        } ${!enabled ? 'opacity-60' : ''}`}
-                        title={canEdit ? `Click to configure ${tool.name} include/exclude globs` : undefined}
-                      >
-                        <td className="px-3.5 py-2.5 font-medium text-white">
-                          {tool.name}
-                        </td>
-                        <td className="px-3.5 py-2.5 text-xs text-slate-300">
-                          {tool.category || '—'}
-                        </td>
-                        <td className="px-3.5 py-2.5 text-xs text-slate-300">
-                          {rule?.include?.length ? (
-                            <span className="inline-flex flex-wrap gap-1">
-                              {rule.include.map((g) => (
-                                <span key={g} className="rounded bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.5 text-blue-200">
-                                  {g}
-                                </span>
-                              ))}
-                            </span>
-                          ) : (
-                            <span className="text-slate-500">All files</span>
-                          )}
-                        </td>
-                        <td className="px-3.5 py-2.5 text-xs text-slate-300">
-                          {rule?.exclude?.length ? (
-                            <span className="inline-flex flex-wrap gap-1">
-                              {rule.exclude.map((g) => (
-                                <span key={g} className="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-amber-200">
-                                  {g}
-                                </span>
-                              ))}
-                            </span>
-                          ) : (
-                            <span className="text-slate-500">—</span>
-                          )}
-                        </td>
-                        <td className="px-3.5 py-2.5 text-right">
-                          {canEdit ? (
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={enabled}
-                              aria-label={`Live toggle ${tool.name}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleApplyToolFromPopup(tool.name, !enabled, {
-                                  ...(rule?.include?.length ? { include: rule.include } : {}),
-                                  ...(rule?.exclude?.length ? { exclude: rule.exclude } : {}),
-                                });
-                              }}
-                              disabled={saving}
-                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
-                                enabled ? 'bg-violet-600' : 'bg-slate-700'
-                              } ${saving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                            >
-                              <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${
-                                  enabled ? 'translate-x-6' : 'translate-x-1'
-                                }`}
-                              />
-                            </button>
-                          ) : (
-                            <Badge variant={enabled ? 'success' : 'default'}>
-                              {enabled ? 'Enabled' : 'Disabled'}
-                            </Badge>
-                          )}
-                        </td>
+              <div className="border border-slate-700/80 rounded-xl bg-slate-900/40 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-slate-800/95 border-b border-slate-700">
+                      <tr>
+                        <th className="px-3.5 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400">Tool</th>
+                        <th className="px-3.5 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400">Category</th>
+                        <th className="px-3.5 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400">Include</th>
+                        <th className="px-3.5 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400">Exclude</th>
+                        <th className="px-3.5 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 text-right">Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800 text-sm">
+                      {pagedLiveRows.map(({ tool, rule, enabled }) => (
+                        <tr
+                          key={tool.id}
+                          onClick={(e) => canEdit && openPopup(tool, e.currentTarget)}
+                          className={`transition-colors ${
+                            canEdit ? 'cursor-pointer hover:bg-slate-800/50' : ''
+                          } ${!enabled ? 'opacity-60' : ''}`}
+                          title={canEdit ? `Click to configure ${tool.name} include/exclude globs` : undefined}
+                        >
+                          <td className="px-3.5 py-2.5 font-medium text-white">
+                            {tool.name}
+                          </td>
+                          <td className="px-3.5 py-2.5 text-xs text-slate-300">
+                            {tool.category || '—'}
+                          </td>
+                          <td className="px-3.5 py-2.5 text-xs text-slate-300">
+                            {rule?.include?.length ? (
+                              <span className="inline-flex flex-wrap gap-1">
+                                {rule.include.map((g) => (
+                                  <span key={g} className="rounded bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.5 text-blue-200">
+                                    {g}
+                                  </span>
+                                ))}
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">All files</span>
+                            )}
+                          </td>
+                          <td className="px-3.5 py-2.5 text-xs text-slate-300">
+                            {rule?.exclude?.length ? (
+                              <span className="inline-flex flex-wrap gap-1">
+                                {rule.exclude.map((g) => (
+                                  <span key={g} className="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-amber-200">
+                                    {g}
+                                  </span>
+                                ))}
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">—</span>
+                            )}
+                          </td>
+                          <td className="px-3.5 py-2.5 text-right">
+                            {canEdit ? (
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={enabled}
+                                aria-label={`Live toggle ${tool.name}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleApplyToolFromPopup(tool.name, !enabled, {
+                                    ...(rule?.include?.length ? { include: rule.include } : {}),
+                                    ...(rule?.exclude?.length ? { exclude: rule.exclude } : {}),
+                                  });
+                                }}
+                                disabled={saving}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
+                                  enabled ? 'bg-violet-600' : 'bg-slate-700'
+                                } ${saving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                              >
+                                <span
+                                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${
+                                    enabled ? 'translate-x-6' : 'translate-x-1'
+                                  }`}
+                                />
+                              </button>
+                            ) : (
+                              <Badge variant={enabled ? 'success' : 'default'}>
+                                {enabled ? 'Enabled' : 'Disabled'}
+                              </Badge>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {totalLivePages > 1 && (
+                  <div className="flex items-center justify-between border-t border-slate-700 bg-slate-900/60 px-4 py-3">
+                    <p className="text-xs text-slate-400">
+                      Showing <span className="font-medium text-white">{(activeLivePage - 1) * LIVE_TABLE_PAGE_SIZE + 1}</span>–
+                      <span className="font-medium text-white">{Math.min(activeLivePage * LIVE_TABLE_PAGE_SIZE, liveRows.length)}</span>
+                      {' '}of <span className="font-medium text-white">{liveRows.length}</span> tools
+                    </p>
+                    <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Live table pagination">
+                      <button
+                        type="button"
+                        onClick={() => setLivePage((p) => Math.max(p - 1, 1))}
+                        disabled={activeLivePage === 1}
+                        className="relative inline-flex items-center rounded-l-md px-2 py-1.5 text-slate-400 ring-1 ring-inset ring-slate-700 hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed"
+                        aria-label="Previous page"
+                      >
+                        <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                      {Array.from({ length: totalLivePages }, (_, i) => i + 1).map((pg) => (
+                        <button
+                          key={pg}
+                          type="button"
+                          onClick={() => setLivePage(pg)}
+                          className={`relative inline-flex items-center px-3 py-1.5 text-xs font-semibold ${
+                            pg === activeLivePage
+                              ? 'z-10 bg-violet-600 text-white'
+                              : 'text-slate-300 ring-1 ring-inset ring-slate-700 hover:bg-slate-800'
+                          }`}
+                        >
+                          {pg}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setLivePage((p) => Math.min(p + 1, totalLivePages))}
+                        disabled={activeLivePage === totalLivePages}
+                        className="relative inline-flex items-center rounded-r-md px-2 py-1.5 text-slate-400 ring-1 ring-inset ring-slate-700 hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed"
+                        aria-label="Next page"
+                      >
+                        <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </nav>
+                  </div>
+                )}
               </div>
             )
           ) : (
@@ -1033,7 +1217,7 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
       )}
 
       {/* Popup UI for Category/Tool Search & Include/Exclude Configuration */}
-      <FloatingPanel
+      <ToolsFloatingPanel
         open={!!popupState}
         point={popupState?.point || null}
         onClose={() => setPopupState(null)}
@@ -1045,19 +1229,20 @@ const ToolsTomlEditor: React.FC<ToolsTomlEditorProps> = ({
           currentRules={parsed.valid ? parsed.rules : {}}
           currentEnabledMap={parsed.valid ? parsed.enabledMap : draftEnabled}
           onApplyTool={handleApplyToolFromPopup}
-          onEnableCategory={handleEnableCategoryFromPopup}
           onClose={() => setPopupState(null)}
         />
-      </FloatingPanel>
+      </ToolsFloatingPanel>
 
       {/* Ask LLM Popup */}
-      <FloatingPanel open={!!llmPoint} point={llmPoint} onClose={() => setLlmPoint(null)} widthPx={440}>
+      <ToolsFloatingPanel open={!!llmPoint} point={llmPoint} onClose={() => setLlmPoint(null)} widthPx={440}>
         <LLMHelperContent
           prompt={llmPrompt}
+          requirements={llmRequirements}
+          onRequirementsChange={setLlmRequirements}
           onCopy={copyPrompt}
           onClose={() => setLlmPoint(null)}
         />
-      </FloatingPanel>
+      </ToolsFloatingPanel>
     </div>
   );
 };

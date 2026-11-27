@@ -11,6 +11,7 @@
 package lrcconfig
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -216,6 +217,183 @@ type ToolRuleConfig struct {
 	Category string   `toml:"category"`
 	Include  []string `toml:"include"`
 	Exclude  []string `toml:"exclude"`
+}
+
+// ToolsTomlRuleConfig is the JSON-friendly normalized rule config returned by ValidateToolsToml.
+type ToolsTomlRuleConfig struct {
+	Enabled  bool     `json:"enabled"`
+	Include  []string `json:"include,omitempty"`
+	Exclude  []string `json:"exclude,omitempty"`
+	Category string   `json:"category,omitempty"`
+}
+
+// ToolsTomlValidationResult describes strict syntax + schema validation of tools.toml text.
+type ToolsTomlValidationResult struct {
+	Valid       bool                           `json:"valid"`
+	Error       string                         `json:"error,omitempty"`
+	ErrorLine   int                            `json:"error_line,omitempty"`
+	ErrorColumn int                            `json:"error_column,omitempty"`
+	EnabledMap  map[string]bool                `json:"enabled_map"`
+	RuleConfigs map[string]ToolsTomlRuleConfig `json:"rule_configs"`
+}
+
+// ValidateToolsToml parses and strictly validates `.lrc/policy/tools.toml` using go-toml/v2
+// and the supported tool rule schema (`enabled`, `include`, `exclude`, `category`, `[tools]`).
+func ValidateToolsToml(tomlText string) ToolsTomlValidationResult {
+	fail := func(line, col int, msg string) ToolsTomlValidationResult {
+		formatted := msg
+		if line > 0 && !strings.HasPrefix(msg, "Line ") {
+			if col > 0 {
+				formatted = fmt.Sprintf("Line %d (col %d): %s", line, col, msg)
+			} else {
+				formatted = fmt.Sprintf("Line %d: %s", line, msg)
+			}
+		}
+		return ToolsTomlValidationResult{
+			Valid:       false,
+			Error:       formatted,
+			ErrorLine:   line,
+			ErrorColumn: col,
+			EnabledMap:  map[string]bool{},
+			RuleConfigs: map[string]ToolsTomlRuleConfig{},
+		}
+	}
+
+	var raw map[string]interface{}
+	if err := toml.Unmarshal([]byte(tomlText), &raw); err != nil {
+		var derr *toml.DecodeError
+		if errors.As(err, &derr) {
+			line, col := derr.Position()
+			return fail(line, col, derr.Error())
+		}
+		return fail(0, 0, err.Error())
+	}
+
+	enabledMap := make(map[string]bool)
+	ruleConfigs := make(map[string]ToolsTomlRuleConfig)
+	seenTools := make(map[string]bool)
+
+	validateStringArray := func(val interface{}, key, section string) ([]string, string) {
+		slice, ok := val.([]interface{})
+		if !ok {
+			return nil, fmt.Sprintf("`%s` in [%s] must be an array of strings, e.g. [\"**/*.py\"]", key, section)
+		}
+		out := make([]string, 0, len(slice))
+		for _, item := range slice {
+			s, ok := item.(string)
+			if !ok {
+				return nil, fmt.Sprintf("`%s` in [%s] must contain only strings", key, section)
+			}
+			out = append(out, s)
+		}
+		return out, ""
+	}
+
+	processToolEntry := func(rawToolName, sectionLabel string, val interface{}) string {
+		toolName := strings.ToLower(strings.TrimSpace(rawToolName))
+		if toolName == "" {
+			return fmt.Sprintf("Empty tool name in [%s]", sectionLabel)
+		}
+		if seenTools[toolName] {
+			return fmt.Sprintf("Duplicate configuration for tool %q", toolName)
+		}
+		seenTools[toolName] = true
+
+		switch v := val.(type) {
+		case bool:
+			enabledMap[toolName] = v
+			ruleConfigs[toolName] = ToolsTomlRuleConfig{Enabled: v}
+			return ""
+		case map[string]interface{}:
+			cfg := ToolsTomlRuleConfig{Enabled: true}
+			seenKeys := make(map[string]bool)
+			for fieldKey, fieldVal := range v {
+				lowerField := strings.ToLower(fieldKey)
+				if seenKeys[lowerField] {
+					return fmt.Sprintf("Duplicate key %q in [%s]", lowerField, sectionLabel)
+				}
+				seenKeys[lowerField] = true
+
+				switch lowerField {
+				case "enabled":
+					b, ok := fieldVal.(bool)
+					if !ok {
+						return fmt.Sprintf("`enabled` in [%s] must be true or false", sectionLabel)
+					}
+					cfg.Enabled = b
+				case "include":
+					arr, errMsg := validateStringArray(fieldVal, "include", sectionLabel)
+					if errMsg != "" {
+						return errMsg
+					}
+					cfg.Include = arr
+				case "exclude":
+					arr, errMsg := validateStringArray(fieldVal, "exclude", sectionLabel)
+					if errMsg != "" {
+						return errMsg
+					}
+					cfg.Exclude = arr
+				case "category":
+					cat, ok := fieldVal.(string)
+					if !ok {
+						return fmt.Sprintf("`category` in [%s] must be a quoted string, e.g. \"security\"", sectionLabel)
+					}
+					cfg.Category = cat
+				default:
+					return fmt.Sprintf("Unknown key %q in [%s] (supported keys: enabled, include, exclude, category)", fieldKey, sectionLabel)
+				}
+			}
+			enabledMap[toolName] = cfg.Enabled
+			ruleConfigs[toolName] = cfg
+			return ""
+		default:
+			if sectionLabel == "tools" {
+				return fmt.Sprintf("Expected true/false or a [tools.%s] table under [tools]", rawToolName)
+			}
+			return fmt.Sprintf("Key %q must appear inside a [tool-name] or [tools] section", rawToolName)
+		}
+	}
+
+	keys := make([]string, 0, len(raw))
+	for k := range raw {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		v := raw[k]
+		if strings.EqualFold(k, "tools") {
+			toolsMap, ok := v.(map[string]interface{})
+			if !ok {
+				return fail(0, 0, "[tools] must be a table of tool entries (e.g. ruff = true)")
+			}
+			subKeys := make([]string, 0, len(toolsMap))
+			for sk := range toolsMap {
+				subKeys = append(subKeys, sk)
+			}
+			sort.Strings(subKeys)
+			for _, subK := range subKeys {
+				label := "tools"
+				if _, isTable := toolsMap[subK].(map[string]interface{}); isTable {
+					label = "tools." + subK
+				}
+				if errMsg := processToolEntry(subK, label, toolsMap[subK]); errMsg != "" {
+					return fail(0, 0, errMsg)
+				}
+			}
+			continue
+		}
+
+		if errMsg := processToolEntry(k, k, v); errMsg != "" {
+			return fail(0, 0, errMsg)
+		}
+	}
+
+	return ToolsTomlValidationResult{
+		Valid:       true,
+		EnabledMap:  enabledMap,
+		RuleConfigs: ruleConfigs,
+	}
 }
 
 // ParseToolRuleConfigs reads .lrc/policy/tools.toml or .lrc/tools.toml from a Bundle.

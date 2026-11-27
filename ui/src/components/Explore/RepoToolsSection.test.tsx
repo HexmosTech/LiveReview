@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { MemoryRouter } from 'react-router-dom';
 import RepoToolsSection from './RepoToolsSection';
-import { getRepositoryTools, updateRepositoryTools } from '../../api/repositories';
+import { getRepositoryTools, previewRepositoryTools, updateRepositoryTools } from '../../api/repositories';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { Repository } from '../../types/explore';
 import {
@@ -15,6 +15,7 @@ import {
 
 jest.mock('../../api/repositories', () => ({
   getRepositoryTools: jest.fn(),
+  previewRepositoryTools: jest.fn(),
   updateRepositoryTools: jest.fn(),
 }));
 
@@ -23,6 +24,7 @@ jest.mock('../../hooks/useOrgContext', () => ({
 }));
 
 const mockGetRepositoryTools = getRepositoryTools as jest.Mock;
+const mockPreviewRepositoryTools = previewRepositoryTools as jest.Mock;
 const mockUpdateRepositoryTools = updateRepositoryTools as jest.Mock;
 const mockUseOrgContext = useOrgContext as jest.Mock;
 
@@ -81,6 +83,12 @@ describe('RepoToolsSection', () => {
       repository_id: 12,
       mode: 'inherit',
       tools: sampleTools,
+    });
+    mockPreviewRepositoryTools.mockResolvedValue({
+      valid: true,
+      enabled_map: {},
+      rule_configs: {},
+      unknown_tools: [],
     });
     mockUpdateRepositoryTools.mockResolvedValue({
       repository_id: 12,
@@ -161,22 +169,34 @@ describe('RepoToolsSection', () => {
 
     // Invalid TOML disables Save Changes
     fireEvent.change(editor, { target: { value: '[ruff]\nenabled = maybe\n' } });
-    expect(screen.getByText('ERROR')).toBeInTheDocument();
+    expect(screen.getAllByText('ERROR').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole('button', { name: 'Save Changes' })).toBeDisabled();
 
     // Toggle quick help sidebar
     fireEvent.click(screen.getByRole('button', { name: /TOML quick help/i }));
     expect(screen.getByText('tools.toml quick help')).toBeInTheDocument();
 
-    // Open Configure tool popup & search by category
+    // Open Configure tool popup & search by category (no "Enable all N" links; clicking a tool toggles enable/disable directly)
     fireEvent.change(editor, { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: /Configure tool\s*Ctrl\+Space/i }));
+    expect(screen.queryByRole('button', { name: /Enable all \d+/i })).not.toBeInTheDocument();
     const search = screen.getByPlaceholderText(/Search category, tool, or language/i);
     fireEvent.change(search, { target: { value: 'Code Quality' } });
-    expect(screen.getByRole('button', { name: /ruff · 1.0×/i })).toBeInTheDocument();
+    const ruffChip = screen.getByRole('button', { name: /ruff · 1.0×/i });
+    expect(ruffChip).toBeInTheDocument();
 
-    // Click ruff to open its include/exclude configurator, enable and add include/exclude
+    // Clicking ruff toggles enabled directly in tools.toml without navigating into a sub-panel
+    fireEvent.click(ruffChip);
+    expect(screen.queryByRole('switch', { name: 'Popup toggle ruff' })).not.toBeInTheDocument();
+    expect(editor.value).toContain('[ruff]\nenabled = true');
     fireEvent.click(screen.getByRole('button', { name: /ruff · 1.0×/i }));
+    expect(editor.value).toContain('[ruff]\nenabled = false');
+    fireEvent.click(screen.getByRole('button', { name: /ruff · 1.0×/i }));
+    expect(editor.value).toContain('[ruff]\nenabled = true');
+    fireEvent.click(screen.getByRole('button', { name: 'Close configure tool panel' }));
+
+    // Clicking ruff row in Live table opens include/exclude configurator
+    fireEvent.click(screen.getByText('ruff'));
     const toggleSwitch = screen.getByRole('switch', { name: 'Popup toggle ruff' });
     expect(toggleSwitch).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(screen.getByRole('button', { name: '+ **/*.py' }));
@@ -248,6 +268,42 @@ describe('RepoToolsSection', () => {
     expect(screen.getByText('tool-11')).toBeInTheDocument();
     expect(screen.queryByText('tool-01')).not.toBeInTheDocument();
   });
+
+  it('paginates the Live table in Advanced mode when more than 5 tools are configured', async () => {
+    const manyTools = Array.from({ length: 7 }, (_, idx) => ({
+      id: idx + 1,
+      name: `tool-${String(idx + 1).padStart(2, '0')}`,
+      description: `Description ${idx + 1}`,
+      lambda_arn: `arn:${idx + 1}`,
+      multiplier: 1.0,
+      use_case: 'Linting',
+      category: 'Code Quality',
+      enabled: true,
+      org_enabled: true,
+      repo_enabled: true,
+    }));
+    mockGetRepositoryTools.mockResolvedValueOnce({
+      repository_id: 12,
+      mode: 'custom',
+      tools: manyTools,
+    });
+
+    render(
+      <MemoryRouter>
+        <RepoToolsSection repo={sampleRepo} />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('tool-01')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Advanced/i }));
+
+    expect(screen.getByText('tool-01')).toBeInTheDocument();
+    expect(screen.queryByText('tool-06')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(screen.getByText('tool-06')).toBeInTheDocument();
+    expect(screen.queryByText('tool-01')).not.toBeInTheDocument();
+  });
 });
 
 describe('toolsToml helpers', () => {
@@ -295,5 +351,102 @@ describe('toolsToml helpers', () => {
     expect(prompt).toContain('Category: Security');
     expect(prompt).toContain('include');
     expect(prompt).toContain('exclude');
+    expect(prompt).toContain('NEVER emit `enabled = false` blocks for unused tools');
+    expect(prompt).toContain('ask me to describe my repository tech stack and conditions first');
+
+    const withReq = buildTomlLLMPrompt(sampleTools, {
+      repoName: 'acme/web',
+      requirements: 'Python linter excluding tests/**',
+    });
+    expect(withReq).toContain('Repository: acme/web');
+    expect(withReq).toContain('Python linter excluding tests/**');
+    expect(withReq).not.toContain('<describe your condition/tech stack here');
+  });
+
+  it('rejects duplicate sections and duplicate keys in parseToolsTomlDetailed', () => {
+    const dupSection = parseToolsTomlDetailed('[ruff]\nenabled = true\n\n[ruff]\nenabled = false\n');
+    expect(dupSection.valid).toBe(false);
+    expect(dupSection.error).toContain('Duplicate section');
+
+    const dupCrossForm = parseToolsTomlDetailed('[ruff]\nenabled = true\n\n[tools.ruff]\nenabled = false\n');
+    expect(dupCrossForm.valid).toBe(false);
+    expect(dupCrossForm.error).toContain('Duplicate section');
+
+    const dupKey = parseToolsTomlDetailed('[ruff]\nenabled = true\nenabled = false\n');
+    expect(dupKey.valid).toBe(false);
+    expect(dupKey.error).toContain('Duplicate key "enabled"');
+  });
+});
+
+describe('RepoToolsSection backend TOML preview', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUseOrgContext.mockReturnValue({
+      currentOrg: { id: 7, name: 'Acme', role: 'owner' },
+      canManageCurrentOrg: true,
+      isSuperAdmin: false,
+    });
+    mockGetRepositoryTools.mockResolvedValue({
+      repository_id: 12,
+      mode: 'inherit',
+      tools: sampleTools,
+    });
+  });
+
+  it('surfaces backend TOML validation errors and disables Save Changes', async () => {
+    mockPreviewRepositoryTools.mockResolvedValue({
+      valid: false,
+      error: 'Line 2 (col 1): toml: unexpected token',
+      error_line: 2,
+      enabled_map: {},
+      rule_configs: {},
+      unknown_tools: [],
+    });
+
+    render(
+      <MemoryRouter>
+        <RepoToolsSection repo={sampleRepo} />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('ruff')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Advanced/i }));
+
+    await waitFor(
+      () => {
+        expect(mockPreviewRepositoryTools).toHaveBeenCalled();
+      },
+      { timeout: 1500 },
+    );
+
+    const matches = await screen.findAllByText(/Line 2 \(col 1\): toml: unexpected token/i);
+    expect(matches.length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('ERROR').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeDisabled();
+  });
+
+  it('clears the preview spinner when the backend preview request fails', async () => {
+    mockPreviewRepositoryTools.mockRejectedValue(new Error('Network error'));
+
+    const { container } = render(
+      <MemoryRouter>
+        <RepoToolsSection repo={sampleRepo} />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('ruff')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Advanced/i }));
+
+    await waitFor(
+      () => {
+        expect(mockPreviewRepositoryTools).toHaveBeenCalled();
+      },
+      { timeout: 1500 },
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector('.animate-spin')).toBeNull();
+    });
+    expect(screen.getByText('VALID')).toBeInTheDocument();
   });
 });
