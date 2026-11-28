@@ -1,68 +1,56 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { LuExternalLink, LuGitBranch } from 'react-icons/lu';
-import ProviderIcon from '../../components/ProviderIcon';
-import { riskAssessment, RiskAssessmentDetails, RiskScore } from '../../components/reviews/RiskAssessment';
-import { reviewStatusBadge } from '../../utils/reviewDisplay';
-import { Button, Icons, Tabs, Tooltip } from '../../components/UIPrimitives';
-import { ReviewEventsPage, DiffViewerPanel, PushNotificationBanner } from '../../components/reviews';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { riskAssessment, RiskScore } from '../../components/reviews/RiskAssessment';
+import { Button, Icons, Tabs } from '../../components/UIPrimitives';
+import { ReviewEventsPage, DiffViewerPanel } from '../../components/reviews';
 import AutoApprovePanel from '../../components/reviews/AutoApprovePanel';
 import { getReviewPolicyLog } from '../../api/riskPolicy';
+import { ToolAccountingData, ToolBreakdownItem } from '../../components/reviews/ToolAnalysisCard';
+import { useOrgContext } from '../../hooks/useOrgContext';
+import apiClient from '../../api/apiClient';
+import { isCloudMode } from '../../utils/deploymentMode';
 import {
-  getReview,
-  getReviewEvents,
-  getReviewSummary,
+    getReview,
+    getReviewEvents,
+    getReviewSummary,
     getReviewAccounting,
     getReviewCommits,
     getBlastRadiusReport,
-  formatRelativeTime,
-  getStatusText
 } from '../../api/reviews';
 import {
-  Review,
-  ReviewEvent,
-  ReviewSummary,
+    Review,
     ReviewAccounting,
-    ReviewAccountingStage,
     ReviewCommit,
-  ReviewEventLevel,
-  ReviewEventType,
+    ReviewEvent,
+    ReviewEventLevel,
+    ReviewEventType,
+    ReviewSummary,
     BlastRadiusReport,
     BlastRadiusSkipped,
-    isBlastRadiusSkipped
+    isBlastRadiusSkipped,
 } from '../../types/reviews';
+import {
+    deriveSeverityCounts,
+    deriveToolAccounting,
+    hasAccountingDetails,
+    formatEventData,
+    ACCOUNTING_REFRESH_INTERVAL_MS,
+    ACTIVE_POLL_INTERVAL_MS,
+} from './reviewDetailHelpers';
+import { getMockReviewData } from './reviewDetailMocks';
+import { ReviewDetailHeader } from '../../components/reviews/ReviewDetailHeader';
+import { ReviewAccountingPanel } from '../../components/reviews/ReviewAccountingPanel';
 
-const ACCOUNTING_REFRESH_INTERVAL_MS = 15000;
-const COMMITS_PREVIEW_LIMIT = 5;
-
-const HeaderStat: React.FC<{ label: string; value: React.ReactNode; className?: string }> = ({ label, value, className }) => (
-    <div className="shrink-0">
-        <p className="text-[11px] text-slate-400 whitespace-nowrap">{label}</p>
-        <p className={`text-sm text-white whitespace-nowrap ${className || ''}`}>{value}</p>
-    </div>
-);
-
-const hasAccountingDetails = (value: ReviewAccounting | null): boolean => {
-        if (!value) {
-                return false;
-        }
-
-        return value.accountedOperations > 0 ||
-                value.totalBillableLoc > 0 ||
-                value.tokenTrackedOperations > 0 ||
-            !!value.stageBreakdown?.length ||
-                !!value.latestOperation;
-};
+type TabId = 'findings' | 'accounting' | 'events' | 'auto-approve';
 
 const ReviewDetail: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const reviewId = parseInt(id || '0', 10);
 
-    // Helper functions to map event data to new format
     const mapEventType = (type: ReviewEventType) => type;
-
     const mapEventLevel = (level: ReviewEventLevel) => level;
+
     const [review, setReview] = useState<Review | null>(null);
     const [events, setEvents] = useState<ReviewEvent[]>([]);
     const [eventCount, setEventCount] = useState<number>(0);
@@ -72,29 +60,17 @@ const ReviewDetail: React.FC = () => {
     const [accountingErrorTone, setAccountingErrorTone] = useState<'info' | 'warning'>('info');
     const [accountingRouteUnavailable, setAccountingRouteUnavailable] = useState(false);
     const [commits, setCommits] = useState<ReviewCommit[]>([]);
-    const [allCommitsShown, setAllCommitsShown] = useState(false);
-    const [detailsExpanded, setDetailsExpanded] = useState(false);
-    const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-    useEffect(() => () => clearTimeout(hoverTimerRef.current), []);
     const [commitsLoaded, setCommitsLoaded] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [pollingEnabled, setPollingEnabled] = useState(true);
-    const [levelFilter, setLevelFilter] = useState<ReviewEventLevel | ''>('');
-    const [typeFilter, setTypeFilter] = useState<ReviewEventType | ''>('');
-    const [lastEventTime, setLastEventTime] = useState<string | null>(null);
-    const [nowTick, setNowTick] = useState<number>(() => Date.now());
-    type TabId = 'findings' | 'accounting' | 'events' | 'auto-approve';
+
     const TAB_IDS: TabId[] = ['findings', 'accounting', 'events', 'auto-approve'];
     const [searchParams, setSearchParams] = useSearchParams();
-    // The active tab lives in the URL (?tab=...), not plain useState, so a
-    // refresh or a deep link restores the tab instead of always landing on
-    // Findings, and the browser Back/Forward buttons step through tab
-    // switches like any other navigation - both were reported as broken.
     const tabParam = searchParams.get('tab');
     const activeTab: TabId = (TAB_IDS as string[]).includes(tabParam || '') ? (tabParam as TabId) : 'findings';
     const setActiveTab = useCallback((tab: TabId, opts?: { replace?: boolean }) => {
-        setSearchParams((prev) => {
+        setSearchParams(prev => {
             const next = new URLSearchParams(prev);
             if (tab === 'findings') {
                 next.delete('tab');
@@ -102,91 +78,75 @@ const ReviewDetail: React.FC = () => {
                 next.set('tab', tab);
             }
             return next;
-        }, { replace: opts?.replace });
+        }, { replace: opts?.replace ?? false });
     }, [setSearchParams]);
+
     const [blastReport, setBlastReport] = useState<BlastRadiusReport | BlastRadiusSkipped | null>(null);
     const [blastPoll, setBlastPoll] = useState<'checking' | 'waiting' | 'gave_up'>('checking');
-    // null means "not loaded yet" (Findings hasn't computed its real, finding-
-    // aware scores) -- distinct from [] (loaded, confirmed zero scored hunks).
-    // riskAssessment() shows a neutral "Calculating..." state for null instead
-    // of guessing from the structural-only blast radius score, which used to
-    // flash a different (sometimes higher) risk tier the moment Findings
-    // finished loading and handed over the real numbers.
     const [riskScores, setRiskScores] = useState<RiskScore[] | null>(null);
     const [commentCount, setCommentCount] = useState<number | undefined>(undefined);
 
     useEffect(() => {
-        // Blast radius comes from `git lrc review` or the server-side job, which runs alongside the
-        // review; until it lands (404), re-check every 30s for up to its 15 min timeout.
+        if (!review) return;
         let cancelled = false;
         let timer: ReturnType<typeof setTimeout> | undefined;
         let attempts = 0;
-        setBlastReport(null);
+        const finished = review.status === 'completed' || review.status === 'failed' || (review.status as string) === 'partial';
+        const maxAttempts = finished ? 3 : 30;
+        const retryDelayMs = finished ? 2500 : 30000;
+        const requestBudgetMs = 5000;
+
+        const cacheKey = `lr:blast-report:${reviewId}`;
+        let seeded = false;
+        try {
+            const cached = sessionStorage.getItem(cacheKey);
+            if (cached) {
+                setBlastReport(JSON.parse(cached) as BlastRadiusReport | BlastRadiusSkipped);
+                seeded = true;
+            }
+        } catch {
+            // A stale or corrupt entry just means one extra fetch.
+        }
+        if (!seeded) setBlastReport(null);
         setBlastPoll('checking');
         setRiskScores(null);
-        setCommentCount(undefined);
+        let inflight: AbortController | null = null;
         const load = () => {
-            getBlastRadiusReport(reviewId)
+            const controller = new AbortController();
+            inflight = controller;
+            const abortTimer = setTimeout(() => controller.abort(), requestBudgetMs);
+            getBlastRadiusReport(reviewId, controller.signal)
                 .then((report) => {
-                    if (!cancelled) setBlastReport(report);
+                    if (cancelled) return;
+                    setBlastReport(report);
+                    try {
+                        sessionStorage.setItem(cacheKey, JSON.stringify(report));
+                    } catch {
+                        // Storage full or blocked; the in-memory state is still correct.
+                    }
                 })
                 .catch(() => {
                     if (cancelled) return;
-                    if (++attempts < 30) {
+                    if (++attempts < maxAttempts) {
                         setBlastPoll('waiting');
-                        timer = setTimeout(load, 30000);
+                        timer = setTimeout(load, retryDelayMs);
                     } else {
                         setBlastPoll('gave_up');
                     }
-                });
+                })
+                .finally(() => clearTimeout(abortTimer));
         };
         load();
         return () => {
             cancelled = true;
             clearTimeout(timer);
+            inflight?.abort();
+            inflight = null;
         };
-    }, [reviewId]);
+    }, [reviewId, review?.status]);
+
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-
-    const getEventIcon = (type: string, level?: string) => {
-        switch (type) {
-            case 'status': 
-                return <div className="text-blue-400"><Icons.Info /></div>;
-            case 'log': 
-                if (level === 'error') return <div className="text-red-400"><Icons.Error /></div>;
-                if (level === 'warn') return <div className="text-yellow-400"><Icons.Warning /></div>;
-                return <div className="text-slate-400"><Icons.Info /></div>;
-            case 'batch': 
-                return <div className="text-purple-400"><Icons.Settings /></div>;
-            case 'artifact': 
-                return <div className="text-green-400"><Icons.Success /></div>;
-            case 'completion': 
-                return <div className="text-green-400"><Icons.Success /></div>;
-            default: 
-                return <div className="text-slate-400"><Icons.Info /></div>;
-        }
-    };
-
-    // Format event data for display
-    const formatEventData = (event: ReviewEvent) => {
-        const data = event.data;
-        
-        switch (event.type) {
-            case 'status':
-                return data.status ? `Status: ${data.status}` : 'Status changed';
-            case 'log':
-                return data.message || 'Log entry';
-            case 'batch':
-                return event.batchId ? `Batch: ${event.batchId}` : `Batch processing`;
-            case 'artifact':
-                return data.url ? `Generated: ${data.kind || 'Artifact'}` : `Artifact: ${data.kind || 'Unknown'}`;
-            case 'completion':
-                return data.resultSummary ? `Completed: ${data.resultSummary}` : 'Process completed';
-            default:
-                return JSON.stringify(data, null, 2);
-        }
-    };
+    const defaultedTabForReviewRef = useRef<number | null>(null);
 
     const fetchAccountingDetails = useCallback(async (currentReviewId: number, reviewStatus?: Review['status']) => {
         try {
@@ -222,7 +182,126 @@ const ReviewDetail: React.FC = () => {
         }
     }, []);
 
-    // Fetch review details
+    const { currentOrg, isFreePlan, isPaidPlan } = useOrgContext();
+    const showToolsUI = isCloudMode() && Boolean(isPaidPlan) && !isFreePlan;
+    const [dbToolMultipliers, setDbToolMultipliers] = useState<Record<string, number>>({});
+    const [toolAccounting, setToolAccounting] = useState<ToolAccountingData | null>(null);
+
+    const effectiveToolAccounting = useMemo<ToolAccountingData | null>(() => {
+        if (toolAccounting) return toolAccounting;
+        const derived = deriveToolAccounting(summary?.toolSummary, dbToolMultipliers);
+        if (derived) return derived;
+        const toolEvents = events ? events.filter(e => (e.type as string) === 'tool_dispatch' || (e.type as string) === 'tool_result') : [];
+        if (toolEvents.length === 0) {
+            return null;
+        }
+
+        const toolBreakdown: ToolBreakdownItem[] = [];
+
+        toolEvents.forEach(evt => {
+            let data: Record<string, any> = {};
+            if (typeof evt.data === 'string') {
+                try {
+                    data = JSON.parse(evt.data);
+                } catch {
+                    data = {};
+                }
+            } else if (evt.data && typeof evt.data === 'object') {
+                data = evt.data as Record<string, any>;
+            }
+            const toolName = (data.tool_name || data.toolName || data.tool || '') as string;
+            if (!toolName) return;
+
+            let existing = toolBreakdown.find(t => t.toolName.toLowerCase() === toolName.toLowerCase());
+            if (!existing) {
+                const multiplier = dbToolMultipliers[toolName.toLowerCase()] ?? 1.0;
+                existing = {
+                    toolName,
+                    creditsUsed: multiplier,
+                    commentsGenerated: 0,
+                    status: 'pending',
+                };
+                toolBreakdown.push(existing);
+            }
+
+            if (evt.type === 'tool_result') {
+                const count = typeof data.comments_count === 'number'
+                    ? data.comments_count
+                    : typeof data.findings_count === 'number'
+                    ? data.findings_count
+                    : Array.isArray(data.findings)
+                    ? data.findings.length
+                    : 0;
+                existing.commentsGenerated = count;
+
+                const eventCredits = typeof data.credits_used === 'number' ? data.credits_used
+                    : typeof data.credits === 'number' ? data.credits
+                    : typeof data.cost === 'number' ? data.cost
+                    : typeof data.multiplier === 'number' ? data.multiplier
+                    : undefined;
+                if (typeof eventCredits === 'number') {
+                    existing.creditsUsed = eventCredits;
+                }
+
+                let status = data.status as ToolBreakdownItem['status'] | undefined;
+                if (!status) {
+                    if (data.exit_code && data.exit_code !== 0) {
+                        status = 'failed';
+                    } else if (data.truncated) {
+                        status = 'partial';
+                    } else if (count > 0) {
+                        status = 'completed';
+                    } else {
+                        status = 'clean';
+                    }
+                }
+                existing.status = status;
+            } else if (evt.type === 'tool_dispatch') {
+                if (existing.status === 'pending') {
+                    existing.status = 'running';
+                }
+            }
+        });
+
+        const totalComments = toolBreakdown.reduce((sum, t) => sum + (t.commentsGenerated || 0), 0);
+        const executedCount = toolBreakdown.filter(t => t.status === 'completed' || t.status === 'clean' || t.status === 'failed' || t.status === 'partial').length;
+        const totalCredits = toolBreakdown
+            .filter(t => t.status === 'completed' || t.status === 'clean' || t.status === 'failed' || t.status === 'partial')
+            .reduce((sum, t) => sum + (t.creditsUsed || 0), 0);
+
+        return {
+            totalToolCredits: totalCredits,
+            toolsExecuted: executedCount,
+            totalCommentsGenerated: totalComments,
+            toolBreakdown,
+        };
+    }, [toolAccounting, summary?.toolSummary, events, dbToolMultipliers]);
+
+    const hasToolData = Boolean(
+        effectiveToolAccounting &&
+        effectiveToolAccounting.toolBreakdown &&
+        effectiveToolAccounting.toolBreakdown.length > 0
+    );
+    const showToolsDropdown = Boolean(hasToolData);
+
+    useEffect(() => {
+        if (!currentOrg?.id) return;
+        apiClient.get<{ tools?: Array<{ name: string; multiplier: number }> }>(`/orgs/${currentOrg.id}/tools`)
+            .then(res => {
+                const catalog = res.tools || [];
+                const multMap: Record<string, number> = {};
+                catalog.forEach(t => {
+                    if (t.name && typeof t.multiplier === 'number') {
+                        multMap[t.name.toLowerCase()] = t.multiplier;
+                    }
+                });
+                setDbToolMultipliers(multMap);
+            })
+            .catch(() => {
+                // Silently fallback if offline or endpoint unavailable
+            });
+    }, [currentOrg?.id]);
+
     const fetchReviewDetails = useCallback(async () => {
         if (!id) return;
         try {
@@ -230,92 +309,94 @@ const ReviewDetail: React.FC = () => {
             setError(null);
             setAccountingError(null);
             setAccountingRouteUnavailable(false);
-            
-            const reviewId = parseInt(id, 10);
-            if (isNaN(reviewId)) {
-                throw new Error('Invalid review ID');
+
+            const mock = getMockReviewData(id);
+            if (mock) {
+                setReview(mock.review);
+                setSummary(mock.summary);
+                setToolAccounting(mock.toolAccounting);
+                setEvents(mock.events);
+                setLoading(false);
+                return;
             }
-            
-            // Keep core review progress load independent from accounting availability.
+
+            const currentReviewId = parseInt(id, 10);
+            if (isNaN(currentReviewId)) {
+                setError('Invalid review ID');
+                setLoading(false);
+                return;
+            }
+
             const [reviewData, eventsData, summaryData] = await Promise.all([
-                getReview(reviewId),
-                getReviewEvents(reviewId, undefined, 1000), // Get all events
-                getReviewSummary(reviewId),
+                getReview(currentReviewId),
+                getReviewEvents(currentReviewId, undefined, 1000).catch(() => ({ events: [] as ReviewEvent[], meta: { count: 0 } })),
+                getReviewSummary(currentReviewId).catch((): ReviewSummary | null => null),
             ]);
 
             setReview(reviewData);
             setSummary(summaryData);
-            await fetchAccountingDetails(reviewId, reviewData.status);
 
-            // Relevant commits are best-effort/informational -- never block
-            // or fail the rest of the page on this.
-            try {
-                const commitsData = await getReviewCommits(reviewId);
-                setCommits(commitsData.commits || []);
-            } catch (commitsErr) {
-                console.warn('Review commits endpoint unavailable:', commitsErr);
-                setCommits([]);
-            } finally {
-                setCommitsLoaded(true);
-            }
-            
             const newEvents = (eventsData?.events as ReviewEvent[] | undefined) || [];
             setEvents(newEvents);
-            
-            // meta.count carries the historical total (restored from compaction marker)
             if (eventsData?.meta?.count !== undefined) {
                 setEventCount(eventsData.meta.count);
             } else {
                 setEventCount(newEvents.length);
             }
-            
-            // Update last event time for next polling
-            if (newEvents.length > 0) {
-                const latestTime = newEvents[newEvents.length - 1].time;
-                setLastEventTime(latestTime);
-            }
 
+            if (summaryData?.toolSummary) {
+                const derived = deriveToolAccounting(summaryData.toolSummary, dbToolMultipliers);
+                setToolAccounting(derived);
+            } else {
+                setToolAccounting(null);
+            }
+            await fetchAccountingDetails(currentReviewId, reviewData.status);
+
+            const commitsData = await getReviewCommits(currentReviewId).catch(() => ({ commits: [] as ReviewCommit[] }));
+            setCommits(commitsData.commits || []);
+            setCommitsLoaded(true);
         } catch (err) {
             console.error('Error fetching review details:', err);
-            setError(err instanceof Error ? err.message : 'Failed to fetch review details');
+            setError(err instanceof Error ? err.message : 'Failed to load review details');
         } finally {
             setLoading(false);
         }
-    }, [id, fetchAccountingDetails]);
-
-
+    }, [id, fetchAccountingDetails, dbToolMultipliers]);
 
     // Reset event cursor and list when navigating to a different review
     useEffect(() => {
         setEvents([]);
-        setLastEventTime(null);
         setCommits([]);
-        setDetailsExpanded(false);
         setCommitsLoaded(false);
-        setAllCommitsShown(false);
+        setToolAccounting(null);
     }, [id]);
 
-    // Findings now stream in incrementally (DiffViewerPanel polls batch
-    // events while the review runs — see reviewStreamState.ts), so Findings
-    // stays the default tab even while a review is still in progress instead
-    // of bouncing the user to Events until completion.
+    // Default to Events tab while review is running or failed; once completed, default to Findings
+    useEffect(() => {
+        if (!review || defaultedTabForReviewRef.current === review.id) return;
+        defaultedTabForReviewRef.current = review.id;
+        if (review.status !== 'completed' && (review.status as string) !== 'partial') {
+            setActiveTab('events');
+        }
+    }, [review, setActiveTab]);
 
-    // When a review finishes while the page is open, jump to Findings and flag the Auto Approve tab.
+    // Jump to Findings when active review finishes
     const lastStatusRef = useRef<string | undefined>(undefined);
     const [autoApproveAttention, setAutoApproveAttention] = useState(false);
     useEffect(() => {
         const prev = lastStatusRef.current;
         lastStatusRef.current = review?.status;
-        if ((prev === 'created' || prev === 'in_progress') && review?.status === 'completed') {
-            setActiveTab('findings', { replace: true });
+        if ((prev === 'created' || prev === 'in_progress') && (review?.status === 'completed' || (review?.status as string) === 'partial')) {
+            setActiveTab('findings');
             if (review.metadata?.pr_link_policy) setAutoApproveAttention(true);
         }
-    }, [review?.status, review?.metadata?.pr_link_policy]);
+    }, [review?.status, review?.metadata?.pr_link_policy, setActiveTab]);
+
     useEffect(() => {
         if (activeTab === 'auto-approve') setAutoApproveAttention(false);
     }, [activeTab]);
 
-    // Auto-approve outcome for PR-link reviews; retried briefly since the policy runs just after the review.
+    // Auto-approve policy outcome for PR-link reviews
     const [policyApproved, setPolicyApproved] = useState<boolean | null>(null);
     useEffect(() => {
         if (!review?.metadata?.pr_link_policy || review.status !== 'completed') return;
@@ -339,46 +420,17 @@ const ReviewDetail: React.FC = () => {
         return `https://github.com/${review.repository}`;
     }, [review]);
 
-    // Derive available filter values from current events
-    const presentTypes = useMemo(() => {
-        const s = new Set<string>();
-        events.forEach(e => s.add(e.type));
-        return s;
-    }, [events]);
-
-    const presentLevels = useMemo(() => {
-        const s = new Set<string>();
-        events.forEach(e => { if (e.level) s.add(e.level); });
-        return s;
-    }, [events]);
-
-    // Events by severity, derived from the already-loaded events list --
-    // error=High, warn=Medium, info/debug=Low.
-    const eventSeverityCounts = useMemo(() => {
-        let high = 0, medium = 0, low = 0;
-        events.forEach(e => {
-            if (e.level === 'error') high++;
-            else if (e.level === 'warn') medium++;
-            else low++;
-        });
-        return { high, medium, low };
-    }, [events]);
+    const eventSeverityCounts = useMemo(
+        () => deriveSeverityCounts(summary, review, events),
+        [summary, review, events]
+    );
 
     // Initial load
     useEffect(() => {
         fetchReviewDetails();
     }, [fetchReviewDetails]);
 
-    // Drives the live "Elapsed" stat while the review is in progress.
-    useEffect(() => {
-        if (review?.status !== 'created' && review?.status !== 'in_progress') {
-            return;
-        }
-        const tick = setInterval(() => setNowTick(Date.now()), 1000);
-        return () => clearInterval(tick);
-    }, [review?.status]);
-
-    // Poll accounting so the panel auto-updates once usage records land.
+    // Polling loop for active reviews and accounting updates
     useEffect(() => {
         if (!id || !pollingEnabled || accountingRouteUnavailable) {
             if (pollingIntervalRef.current) {
@@ -410,17 +462,25 @@ const ReviewDetail: React.FC = () => {
             clearInterval(pollingIntervalRef.current);
         }
 
+        const pollInterval = (review?.status === 'created' || review?.status === 'in_progress') ? ACTIVE_POLL_INTERVAL_MS : ACCOUNTING_REFRESH_INTERVAL_MS;
         pollingIntervalRef.current = setInterval(() => {
             void fetchAccountingDetails(currentReviewId, review?.status);
-            // Refresh the review itself too, so the status badge flips once the review finishes.
+            // Refresh review and summary so tools and findings show live without manual page refresh
             if (review?.status === 'created' || review?.status === 'in_progress') {
                 getReview(currentReviewId).then(setReview).catch(() => {});
-                // Summary (batch count, event counts) is otherwise only fetched once on
-                // mount - without this it stays frozen at whatever it was when the page
-                // first loaded, e.g. "Batches: 0" forever if opened before any batch ran.
-                getReviewSummary(currentReviewId).then(setSummary).catch(() => {});
+                getReviewSummary(currentReviewId).then((summaryData) => {
+                    setSummary(summaryData);
+                    if (summaryData?.toolSummary) {
+                        const derived = deriveToolAccounting(summaryData.toolSummary, dbToolMultipliers);
+                        if (derived) {
+                            setToolAccounting(derived);
+                        }
+                    }
+                }).catch((err) => {
+                    console.warn('Review summary polling skipped:', err);
+                });
             }
-        }, ACCOUNTING_REFRESH_INTERVAL_MS);
+        }, pollInterval);
 
         return () => {
             if (pollingIntervalRef.current) {
@@ -428,8 +488,8 @@ const ReviewDetail: React.FC = () => {
                 pollingIntervalRef.current = null;
             }
         };
-    }, [id, pollingEnabled, accountingRouteUnavailable, review?.status, accounting, fetchAccountingDetails]);
-    
+    }, [id, pollingEnabled, accountingRouteUnavailable, review?.status, accounting, fetchAccountingDetails, dbToolMultipliers]);
+
     if (loading) {
         return (
             <div className="container mx-auto px-4 py-8">
@@ -473,303 +533,29 @@ const ReviewDetail: React.FC = () => {
         );
     }
 
-    const formatInt = (value?: number): string => {
-        if (value === undefined || value === null) {
-            return 'Not tracked yet';
-        }
-        return value.toLocaleString();
-    };
-
-    const formatCurrency = (value?: number): string => {
-        if (value === undefined || value === null) {
-            return 'Not tracked yet';
-        }
-        return `$${value.toFixed(4)}`;
-    };
-
-    const formatDuration = (startedAt?: string, completedAt?: string): string | null => {
-        if (!startedAt || !completedAt) {
-            return null;
-        }
-        const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime();
-        if (!isFinite(ms) || ms < 0) {
-            return null;
-        }
-        const totalSeconds = Math.round(ms / 1000);
-        const minutes = Math.floor(totalSeconds / 60);
-        const seconds = totalSeconds % 60;
-        return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-    };
-
-    // "Elapsed" ticks live while a review is running (unlike formatDuration, which
-    // only has an answer once completedAt is set) - uses nowTick so it re-renders
-    // every second instead of freezing at the value from the last fetch.
-    const elapsed = review.startedAt
-        ? formatDuration(review.startedAt, review.completedAt || new Date(nowTick).toISOString())
-        : null;
-
-    const leaderAIExecutionMode = typeof review.metadata?.leader_ai_execution_mode === 'string' ? review.metadata.leader_ai_execution_mode : '';
-    const leaderAIExecutionSource = typeof review.metadata?.leader_ai_execution_source === 'string' ? review.metadata.leader_ai_execution_source : '';
-    const leaderAIExecutionProvider = typeof review.metadata?.leader_ai_provider_name === 'string' ? review.metadata.leader_ai_provider_name : '';
-    const leaderAIExecutionConnector = typeof review.metadata?.leader_ai_connector_name === 'string' ? review.metadata.leader_ai_connector_name : '';
-    const helperAIExecutionMode = typeof review.metadata?.helper_ai_execution_mode === 'string' ? review.metadata.helper_ai_execution_mode : '';
-    const helperAIExecutionSource = typeof review.metadata?.helper_ai_execution_source === 'string' ? review.metadata.helper_ai_execution_source : '';
-    const helperAIExecutionProvider = typeof review.metadata?.helper_ai_provider_name === 'string' ? review.metadata.helper_ai_provider_name : '';
-    const helperAIExecutionConnector = typeof review.metadata?.helper_ai_connector_name === 'string' ? review.metadata.helper_ai_connector_name : '';
-    const helperEnabled = !!accounting?.helperEnabled;
-    const helperMode = accounting?.helperMode || '';
-    const stageBreakdown = accounting?.stageBreakdown || [];
-
-    const formatStageLabel = (stage: string): string => {
-        switch (stage) {
-            case 'leader':
-                return 'Leader model';
-            case 'helper':
-                return 'Helper model';
-            default:
-                return stage.charAt(0).toUpperCase() + stage.slice(1);
-        }
-    };
-
-    const getStageRouteText = (stage: ReviewAccountingStage): string => {
-        if (stage.stage === 'helper') {
-            return [helperAIExecutionProvider || stage.provider, helperAIExecutionConnector]
-                .filter(Boolean)
-                .join(' / ');
-        }
-        return [leaderAIExecutionProvider || stage.provider, leaderAIExecutionConnector]
-            .filter(Boolean)
-            .join(' / ');
-    };
-
-    const getStageExecutionText = (stage: ReviewAccountingStage): string => {
-        if (stage.stage === 'helper') {
-            return [helperAIExecutionMode, helperAIExecutionSource].filter(Boolean).join(' via ');
-        }
-        return [leaderAIExecutionMode, leaderAIExecutionSource].filter(Boolean).join(' via ');
-    };
-
-    const statusBadge = reviewStatusBadge(review.status);
     const risk = riskAssessment(blastReport, blastPoll, !!review.prMrUrl, riskScores);
-
     const accountingBannerClass = accountingErrorTone === 'warning'
-        ? 'mb-4 rounded-md border border-amber-700 bg-amber-900/30 p-3 text-xs text-amber-200'
-        : 'mb-4 rounded-md border border-sky-700 bg-sky-900/30 p-3 text-xs text-sky-200';
+        ? 'mb-4 p-3 bg-amber-950/40 border border-amber-800/60 rounded text-xs text-amber-200'
+        : 'mb-4 p-3 bg-slate-900 border border-slate-700 rounded text-xs text-slate-400';
 
     return (
         <div className="container mx-auto px-4 py-8">
-            <PushNotificationBanner />
+            <ReviewDetailHeader
+                key={review.id}
+                review={review}
+                summary={summary}
+                events={events}
+                eventSeverityCounts={eventSeverityCounts}
+                risk={risk}
+                policyApproved={policyApproved}
+                commits={commits}
+                commitsLoaded={commitsLoaded}
+                githubBaseUrl={githubBaseUrl}
+                showToolsDropdown={showToolsDropdown}
+                effectiveToolAccounting={effectiveToolAccounting}
+                onViewAllEvents={() => setActiveTab('events')}
+            />
 
-            {/* Header */}
-            <Button
-                as={Link}
-                to="/reviews"
-                variant="ghost"
-                icon={<Icons.Back />}
-                className="-ml-4 mb-2"
-            >
-                Back to Reviews
-            </Button>
-            <div className="flex items-center justify-between mb-8">
-                <div className="flex items-center">
-                    <div>
-                        <h1 className="text-3xl font-bold text-white">
-                            {review.repository.split('/').pop() || review.repository}
-                            <span className="ml-3 text-lg font-normal text-slate-400">#{review.id}</span>
-                        </h1>
-                        <p className="flex items-center gap-3 text-slate-300">
-                            {review.branch && (
-                                <span className="inline-flex items-center gap-1.5">
-                                    <LuGitBranch className="w-4 h-4 text-slate-400" />
-                                    {review.branch}
-                                </span>
-                            )}
-                            {review.prMrUrl && (
-                                <a
-                                    href={review.prMrUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300"
-                                >
-                                    View PR/MR
-                                    <LuExternalLink className="w-3.5 h-3.5" />
-                                </a>
-                            )}
-                        </p>
-                    </div>
-                </div>
-                <div className="flex items-center space-x-4">
-                    <span
-                        className="inline-flex items-center rounded-md px-2 py-0.5 text-sm font-medium"
-                        style={{ color: statusBadge.color, border: `1px solid ${statusBadge.borderColor}` }}
-                    >
-                        {getStatusText(review.status)}
-                    </span>
-                    {/* Polling control moved to ReviewEventsPage for consistency */}
-                </div>
-            </div>
-
-            {/* Review Info: compact one-row header, expands inline for
-                commits + review details rather than spreading everything
-                across the page by default. */}
-            <div className="bg-slate-800 rounded-lg border border-slate-700 mb-6">
-                <button
-                    type="button"
-                    onClick={() => setDetailsExpanded((v) => !v)}
-                    onMouseEnter={() => { hoverTimerRef.current = setTimeout(() => setDetailsExpanded(true), 2000); }}
-                    onMouseLeave={() => clearTimeout(hoverTimerRef.current)}
-                    className="w-full flex items-center gap-6 px-4 py-3 text-left overflow-x-auto"
-                    aria-expanded={detailsExpanded}
-                >
-                    <HeaderStat
-                        label="Provider"
-                        value={review.provider ? (
-                            <span className="inline-flex items-center gap-1.5">
-                                <span className="inline-flex [&>svg]:h-3.5 [&>svg]:w-3.5">
-                                    <ProviderIcon provider={review.provider} />
-                                </span>
-                                {review.provider}
-                            </span>
-                        ) : '-'}
-                        className="capitalize"
-                    />
-                    <HeaderStat label="Commits" value={commitsLoaded ? String(commits.length) : '...'} />
-                    <HeaderStat label="Last activity" value={formatRelativeTime(review.completedAt || review.startedAt || review.createdAt)} />
-                    {elapsed && <HeaderStat label="Elapsed" value={elapsed} />}
-                    <HeaderStat label="Events" value={eventCount !== undefined && eventCount > 0 ? String(eventCount) : String(Object.values(summary?.eventCounts || {}).reduce((a: number, b: number) => a + b, 0))} />
-                    <HeaderStat label="Risk assessment" value={risk.value} className={risk.tone} />
-                    {commentCount !== undefined && <HeaderStat label="Comments" value={String(commentCount)} />}
-                    {review.metadata?.pr_link_policy && (
-                        <HeaderStat
-                            label="Auto-approve"
-                            value={policyApproved === null ? 'Pending' : policyApproved ? 'Approved' : 'Not approved'}
-                            className={policyApproved === null ? '!text-slate-400' : policyApproved ? '!text-green-400' : '!text-red-400'}
-                        />
-                    )}
-                    <div className="ml-auto flex items-center gap-3 shrink-0">
-                        <span className="flex items-center gap-1 text-xs text-slate-300">
-                            {detailsExpanded ? 'Less' : 'More'}
-                            {detailsExpanded ? <Icons.ChevronDown /> : <Icons.ChevronRight />}
-                        </span>
-                    </div>
-                </button>
-
-                {detailsExpanded && (
-                    <div className="border-t border-slate-700 px-4 py-4 grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
-                        <div>
-                            <h3 className="text-xs font-semibold text-white uppercase tracking-wide mb-2">
-                                Commits{commitsLoaded && ` (${commits.length})`}
-                            </h3>
-                            {!commitsLoaded && (
-                                <p className="text-xs text-slate-400">Checking for commit information...</p>
-                            )}
-                            {commitsLoaded && commits.length === 0 && (
-                                <p className="text-xs text-slate-400">
-                                    No commit information recorded for this review yet. Plain "lrc review" (staged/working) commits sync in the background after `git commit` and may take a moment to appear; PR/MR and --commit/--range reviews are recorded immediately once submitted.
-                                </p>
-                            )}
-                            {commits.length > 0 && (
-                                <>
-                                    <ul className={`space-y-2 ${allCommitsShown && commits.length > COMMITS_PREVIEW_LIMIT ? 'max-h-64 overflow-y-auto pr-1' : ''}`}>
-                                        {(allCommitsShown ? commits : commits.slice(0, COMMITS_PREVIEW_LIMIT)).map((commit) => (
-                                            <li key={commit.ref} className="text-xs">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="flex items-center gap-2 min-w-0">
-                                                        {commit.refType === 'commit' && githubBaseUrl ? (
-                                                            <a
-                                                                href={`${githubBaseUrl}/commit/${commit.ref}`}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                className="font-mono text-slate-200 shrink-0 hover:text-blue-400 hover:underline"
-                                                            >
-                                                                {commit.ref.substring(0, 8)}
-                                                            </a>
-                                                        ) : (
-                                                            <span className="font-mono text-slate-200 shrink-0">
-                                                                {commit.refType === 'commit' ? commit.ref.substring(0, 8) : commit.ref}
-                                                            </span>
-                                                        )}
-                                                        {commit.refType === 'range' && (
-                                                            <span className="shrink-0 text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border bg-purple-900/30 text-purple-300 border-purple-700">
-                                                                range
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <span className="shrink-0 text-slate-400">{formatRelativeTime(commit.createdAt)}</span>
-                                                </div>
-                                                {commit.message && (
-                                                    <div className="mt-0.5 w-full">
-                                                        <Tooltip content={commit.message}>
-                                                            <p className="w-full truncate text-slate-400">{commit.message}</p>
-                                                        </Tooltip>
-                                                    </div>
-                                                )}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                    {commits.length > COMMITS_PREVIEW_LIMIT && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setAllCommitsShown((prev) => !prev)}
-                                            className="mt-2 text-xs text-slate-400 hover:text-white hover:underline"
-                                        >
-                                            {allCommitsShown ? 'Show less' : `+${commits.length - COMMITS_PREVIEW_LIMIT} more commits`}
-                                        </button>
-                                    )}
-                                </>
-                            )}
-                        </div>
-
-                        <div>
-                            <h3 className="text-xs font-semibold text-white uppercase tracking-wide mb-2">Review details</h3>
-                            <dl className="grid grid-cols-[6.5rem_1fr] gap-x-3 gap-y-1 text-xs">
-                                <div className="contents">
-                                    <dt className="text-slate-400">Created by</dt>
-                                    <dd className="text-white">{review.userEmail || '-'}</dd>
-                                </div>
-                                <div className="contents">
-                                    <dt className="text-slate-400">Created</dt>
-                                    <dd className="text-white">{new Date(review.createdAt).toLocaleString()}</dd>
-                                </div>
-                                <div className="contents">
-                                    <dt className="text-slate-400">Batches</dt>
-                                    <dd className="text-white">{summary?.batchCount ?? 0}</dd>
-                                </div>
-                                {formatDuration(review.startedAt, review.completedAt) && (
-                                    <div className="contents">
-                                        <dt className="text-slate-400">Duration</dt>
-                                        <dd className="text-white">{formatDuration(review.startedAt, review.completedAt)}</dd>
-                                    </div>
-                                )}
-                            </dl>
-                            <div className="mt-4">
-                                <p className="text-xs text-slate-400 mb-1">Events by severity</p>
-                                <div className="flex gap-4 text-xs">
-                                    <span className="text-red-400">High {eventSeverityCounts.high}</span>
-                                    <span className="text-amber-400">Medium {eventSeverityCounts.medium}</span>
-                                    <span className="text-sky-400">Low {eventSeverityCounts.low}</span>
-                                </div>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setActiveTab('events')}
-                                className="mt-4 text-xs text-blue-400 hover:text-blue-300"
-                            >
-                                View all events →
-                            </button>
-                        </div>
-
-                        <div>
-                            <h3 className="text-xs font-semibold text-white uppercase tracking-wide mb-2">Risk assessment</h3>
-                            <div className="text-xs">
-                                <RiskAssessmentDetails risk={risk} connectorId={review.connectorId} />
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </div>
-
-            {/* Findings / Accounting / Events */}
             <Tabs
                 className="mb-6"
                 activeTab={activeTab}
@@ -777,20 +563,8 @@ const ReviewDetail: React.FC = () => {
                 tabs={[
                     { id: 'findings', label: 'Findings' },
                     { id: 'accounting', label: 'Accounting' },
-                    {
-                        id: 'events',
-                        label: (
-                            <span className="inline-flex items-center gap-1.5">
-                                Events
-                                {eventCount > 0 && (
-                                    <span className="inline-flex items-center justify-center rounded-full bg-slate-700 px-1.5 py-0.5 text-[10px] font-medium text-slate-200 min-w-[1.25rem]">
-                                        {eventCount}
-                                    </span>
-                                )}
-                            </span>
-                        ),
-                    },
-                    ...(review.metadata?.pr_link_policy ? [{
+                    { id: 'events', label: 'Events' },
+                    ...(review.metadata?.pr_link_policy || review.prMrUrl ? [{
                         id: 'auto-approve',
                         label: (
                             <span className="inline-flex items-center gap-2">
@@ -807,12 +581,14 @@ const ReviewDetail: React.FC = () => {
                 ]}
             />
 
-            {activeTab === 'auto-approve' && review.metadata?.pr_link_policy && (
-                <div className="mb-6">
+            {/* Auto Approve Panel */}
+            {activeTab === 'auto-approve' && (review.metadata?.pr_link_policy || review.prMrUrl) && (
+                <div className="mb-6 space-y-4">
                     <AutoApprovePanel reviewId={reviewId} />
                 </div>
             )}
 
+            {/* Findings Panel */}
             {activeTab === 'findings' && (
                 <div className="mb-6">
                     {/* No key={review?.status} here - DiffViewerPanel has its own
@@ -832,166 +608,33 @@ const ReviewDetail: React.FC = () => {
             )}
 
             {/* Accounting Panel */}
-            <div className={`bg-slate-800 rounded-lg p-4 border border-slate-700 mb-6 ${activeTab === 'accounting' ? '' : 'hidden'}`}>
-                <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold text-white">Accounting</h2>
-                    {accounting?.lastAccountedAt ? (
-                        <span className="text-xs text-slate-400">
-                            Last accounted {formatRelativeTime(accounting.lastAccountedAt)}
-                        </span>
-                    ) : (
-                        <span className="text-xs text-slate-400">Auto-refresh every 15s</span>
-                    )}
-                </div>
-                {accountingError && (
-                    <div className={accountingBannerClass}>
-                        {accountingError}
-                    </div>
-                )}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm mb-4">
-                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
-                        <p className="text-slate-400">Total LOC</p>
-                        <p className="text-white font-semibold text-base">{(accounting?.totalBillableLoc || 0).toLocaleString()}</p>
-                    </div>
-                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
-                        <p className="text-slate-400">Input Tokens</p>
-                        <p className="text-white font-semibold text-base">{formatInt(accounting?.totalInputTokens)}</p>
-                    </div>
-                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
-                        <p className="text-slate-400">Output Tokens</p>
-                        <p className="text-white font-semibold text-base">{formatInt(accounting?.totalOutputTokens)}</p>
-                    </div>
-                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
-                        <p className="text-slate-400">Total Cost (USD)</p>
-                        <p className="text-white font-semibold text-base">{formatCurrency(accounting?.totalCostUsd)}</p>
-                    </div>
-                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
-                        <p className="text-slate-400">Accounted Operations</p>
-                        <p className="text-white font-semibold text-base">{(accounting?.accountedOperations || 0).toLocaleString()}</p>
-                    </div>
-                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
-                        <p className="text-slate-400">Token-tracked Operations</p>
-                        <p className="text-white font-semibold text-base">{(accounting?.tokenTrackedOperations || 0).toLocaleString()}</p>
-                    </div>
-                </div>
-                <div className="mb-4 flex flex-wrap gap-2 text-xs">
-                    <span className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1 text-slate-200">
-                        Helper {helperEnabled ? 'enabled' : 'disabled'}
-                    </span>
-                    {helperEnabled && helperMode && (
-                        <span className="rounded-full border border-sky-700 bg-sky-900/30 px-3 py-1 text-sky-200">
-                            Mode: {helperMode}
-                        </span>
-                    )}
-                    {!!stageBreakdown.length && (
-                        <span className="rounded-full border border-emerald-700 bg-emerald-900/30 px-3 py-1 text-emerald-200">
-                            Stages tracked: {stageBreakdown.length}
-                        </span>
-                    )}
-                </div>
-                {!!stageBreakdown.length && (
-                    <div className="mb-4">
-                        <div className="mb-2 flex items-center justify-between">
-                            <h3 className="text-sm font-medium text-white">Model Breakdown</h3>
-                            <span className="text-xs text-slate-400">
-                                {helperEnabled ? 'Leader and Helper stages' : 'Single-stage review'}
-                            </span>
-                        </div>
-                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                            {stageBreakdown.map((stage) => {
-                                const routeText = getStageRouteText(stage);
-                                const executionText = getStageExecutionText(stage);
-                                return (
-                                    <div
-                                        key={`${stage.stage}-${stage.provider || 'unknown'}-${stage.model || 'unknown'}`}
-                                        className="rounded-md border border-slate-700 bg-slate-900 p-3"
-                                    >
-                                        <div className="mb-2 flex items-start justify-between gap-3">
-                                            <div>
-                                                <p className="text-sm font-semibold text-white">{formatStageLabel(stage.stage)}</p>
-                                                <p className="text-xs text-slate-400">
-                                                    {(stage.provider || 'unknown provider')} / {(stage.model || 'unknown model')}
-                                                </p>
-                                            </div>
-                                            {stage.pricingVersion && (
-                                                <span className="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-300">
-                                                    {stage.pricingVersion}
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="grid grid-cols-3 gap-2 text-xs mb-3">
-                                            <div className="rounded border border-slate-700 bg-slate-950 p-2">
-                                                <p className="text-slate-500">Input</p>
-                                                <p className="mt-1 text-sm font-medium text-white">{formatInt(stage.inputTokens)}</p>
-                                            </div>
-                                            <div className="rounded border border-slate-700 bg-slate-950 p-2">
-                                                <p className="text-slate-500">Output</p>
-                                                <p className="mt-1 text-sm font-medium text-white">{formatInt(stage.outputTokens)}</p>
-                                            </div>
-                                            <div className="rounded border border-slate-700 bg-slate-950 p-2">
-                                                <p className="text-slate-500">Cost</p>
-                                                <p className="mt-1 text-sm font-medium text-white">{formatCurrency(stage.costUsd)}</p>
-                                            </div>
-                                        </div>
-                                        <div className="space-y-1 text-xs text-slate-300">
-                                            {executionText && (
-                                                <p><span className="text-slate-500">Execution:</span> {executionText}</p>
-                                            )}
-                                            {routeText && (
-                                                <p><span className="text-slate-500">Route:</span> {routeText}</p>
-                                            )}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
-                {accounting?.latestOperation && (
-                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700 text-xs">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-y-2 gap-x-4">
-                            <p className="text-slate-300"><span className="text-slate-500">Latest operation:</span> {accounting.latestOperation.operationType}</p>
-                            <p className="text-slate-300"><span className="text-slate-500">Trigger:</span> {accounting.latestOperation.triggerSource}</p>
-                            <p className="text-slate-300"><span className="text-slate-500">Provider/Model:</span> {(accounting.latestOperation.provider || 'unknown')} / {(accounting.latestOperation.model || 'unknown')}</p>
-                            <p className="text-slate-300"><span className="text-slate-500">Pricing version:</span> {accounting.latestOperation.pricingVersion || 'unknown'}</p>
-                            <p className="text-slate-300"><span className="text-slate-500">Operation ID:</span> {accounting.latestOperation.operationId}</p>
-                            <p className="text-slate-300"><span className="text-slate-500">Idempotency key:</span> {accounting.latestOperation.idempotencyKey}</p>
-                            {(leaderAIExecutionMode || leaderAIExecutionSource) && (
-                                <p className="text-slate-300"><span className="text-slate-500">Leader execution:</span> {(leaderAIExecutionMode || 'unknown')} via {(leaderAIExecutionSource || 'unknown')}</p>
-                            )}
-                            {(leaderAIExecutionProvider || leaderAIExecutionConnector) && (
-                                <p className="text-slate-300"><span className="text-slate-500">Leader route:</span> {(leaderAIExecutionProvider || 'unknown')} / {(leaderAIExecutionConnector || 'unknown')}</p>
-                            )}
-                            {helperEnabled && (helperAIExecutionMode || helperAIExecutionSource) && (
-                                <p className="text-slate-300"><span className="text-slate-500">Helper execution:</span> {(helperAIExecutionMode || 'unknown')} via {(helperAIExecutionSource || 'unknown')}</p>
-                            )}
-                            {helperEnabled && (helperAIExecutionProvider || helperAIExecutionConnector) && (
-                                <p className="text-slate-300"><span className="text-slate-500">Helper route:</span> {(helperAIExecutionProvider || 'unknown')} / {(helperAIExecutionConnector || 'unknown')}</p>
-                            )}
-                        </div>
-                    </div>
-                )}
-            </div>
+            <ReviewAccountingPanel
+                accounting={accounting}
+                accountingError={accountingError}
+                accountingBannerClass={accountingBannerClass}
+                showToolsDropdown={showToolsDropdown}
+                reviewMetadata={review.metadata}
+                active={activeTab === 'accounting'}
+            />
 
-            {/* Events Timeline - Full Width */}
+            {/* Events Timeline */}
             <div className={activeTab === 'events' ? '' : 'hidden'}>
-                    <ReviewEventsPage
-                        reviewId={reviewId}
-                        initialEventCount={eventCount}
-                        initialEvents={events.map(event => ({
-                            id: event.id.toString(),
-                            timestamp: event.time,
-                            eventType: mapEventType(event.type) as 'log' | 'status' | 'batch' | 'artifact' | 'completion' | 'retry' | 'json_repair' | 'timeout' | 'started' | 'progress' | 'batch_complete' | 'error' | 'completed',
-                            message: formatEventData(event),
-                            details: {
-                                batchId: event.batchId,
-                                ...event.data
-                            },
-                            severity: mapEventLevel(event.level) as 'info' | 'success' | 'warning' | 'warn' | 'error' | 'debug'
-                        }))}
-                        isLive={review?.status === 'in_progress'}
-                        reviewStatus={review?.status}
-                    />
+                <ReviewEventsPage
+                    reviewId={reviewId}
+                    initialEventCount={eventCount}
+                    initialEvents={events.map(event => ({
+                        id: event.id.toString(),
+                        timestamp: event.time,
+                        eventType: mapEventType(event.type) as 'log' | 'status' | 'batch' | 'artifact' | 'completion' | 'retry' | 'json_repair' | 'timeout' | 'started' | 'progress' | 'batch_complete' | 'error' | 'completed',
+                        message: formatEventData(event),
+                        details: {
+                            batchId: event.batchId,
+                            ...event.data
+                        },
+                        severity: mapEventLevel(event.level) as 'info' | 'success' | 'warning' | 'warn' | 'error' | 'debug'
+                    }))}
+                    isLive={review?.status === 'in_progress'}
+                />
             </div>
         </div>
     );

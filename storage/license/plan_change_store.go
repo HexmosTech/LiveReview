@@ -93,24 +93,48 @@ func (s *PlanChangeStore) GetOrgBillingState(ctx context.Context, orgID int64) (
 }
 
 func (s *PlanChangeStore) ApplyImmediatePlanUpgrade(ctx context.Context, orgID int64, targetPlanCode string, actorUserID int64, payload map[string]interface{}) error {
+	return s.ApplyImmediatePlanUpgradeWithDates(ctx, orgID, targetPlanCode, actorUserID, time.Time{}, time.Time{}, payload)
+}
+
+func (s *PlanChangeStore) ApplyImmediatePlanUpgradeWithDates(ctx context.Context, orgID int64, targetPlanCode string, actorUserID int64, periodStart, periodEnd time.Time, payload map[string]interface{}) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin upgrade tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE org_billing_state
-		SET current_plan_code = $1,
-			scheduled_plan_code = NULL,
-			scheduled_plan_effective_at = NULL,
-			upgrade_loc_grant_current_cycle = 0,
-			upgrade_loc_grant_expires_at = NULL,
-			trial_readonly = FALSE,
-			updated_at = NOW()
-		WHERE org_id = $2
-	`, targetPlanCode, orgID); err != nil {
-		return fmt.Errorf("update immediate upgrade: %w", err)
+	if !periodStart.IsZero() && !periodEnd.IsZero() && periodEnd.After(periodStart) {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE org_billing_state
+			SET current_plan_code = $1,
+				scheduled_plan_code = NULL,
+				scheduled_plan_effective_at = NULL,
+				upgrade_loc_grant_current_cycle = 0,
+				upgrade_loc_grant_expires_at = NULL,
+				trial_readonly = FALSE,
+				trial_ends_at = NULL,
+				billing_period_start = $3,
+				billing_period_end = $4,
+				updated_at = NOW()
+			WHERE org_id = $2
+		`, targetPlanCode, orgID, periodStart.UTC(), periodEnd.UTC()); err != nil {
+			return fmt.Errorf("update immediate upgrade with dates: %w", err)
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE org_billing_state
+			SET current_plan_code = $1,
+				scheduled_plan_code = NULL,
+				scheduled_plan_effective_at = NULL,
+				upgrade_loc_grant_current_cycle = 0,
+				upgrade_loc_grant_expires_at = NULL,
+				trial_readonly = FALSE,
+				trial_ends_at = NULL,
+				updated_at = NOW()
+			WHERE org_id = $2
+		`, targetPlanCode, orgID); err != nil {
+			return fmt.Errorf("update immediate upgrade: %w", err)
+		}
 	}
 
 	if err := insertLifecycleEventTx(ctx, tx, orgID, "plan_upgraded", targetPlanCode, actorUserID, payload, fmt.Sprintf("plan-upgraded:%d:%s:%d", orgID, targetPlanCode, time.Now().UTC().Unix())); err != nil {

@@ -12,8 +12,8 @@ the Actions column of [Explore → Repositories](repositories.md).
 ## Who can access it
 
 Any authenticated org member, for repositories in their own organization.
-Changing settings (e.g. clearing the repo cache) needs an org owner or super
-admin.
+Changing settings (clearing the repo cache, editing Auto Approve policies, or
+configuring repository SAST Tools) needs an org owner or super admin.
 
 ## Sections
 
@@ -36,8 +36,21 @@ admin.
   and cross-repo link types the analysis supports (best/good/basic, plus
   HTTP, gRPC, GraphQL, tRPC and async/channel links). Org owners and super
   admins can add or remove links; any member can view the list.
+- **SAST Tools** (`#sast-tools`) — visible on Cloud paid plans
+  only. Lets owners configure which static analysis tools run during **pull
+  request reviews** on this repository (persisted under
+  `repositories.settings->'tools'`), with two synchronized modes:
+  - **Simple** — a sortable, paginated table where each tool can be toggled
+    individually on or off.
+  - **Advanced** — a CI/CD-style `tools.toml` editor supporting `enabled`,
+    `include`, and `exclude` path globs, a `Configure tool` category-search
+    popup (`Ctrl+Space`), `Ask LLM`, `TOML quick help`, quick presets, a live
+    effective table, and interactive path-glob testing.
+  When `.lrc/policy/tools.toml` is also committed in git, its entries overlay
+  on top. See [Settings → SAST Tools](../settings/third-party-tools.md).
 
 ## Related pages
 
 - [Explore → Repositories](repositories.md)
 - [Settings → Storage](../settings/storage.md)
+- [Settings → SAST Tools](../settings/third-party-tools.md)

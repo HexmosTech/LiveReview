@@ -590,11 +590,17 @@ func (p *BitbucketProvider) PostComment(ctx context.Context, mrID string, commen
 	return p.postGeneralComment(ctx, workspace, repo, prNumber, comment)
 }
 
-// formatBitbucketComment formats a comment for Bitbucket, including severity and suggestions.
+// formatBitbucketComment formats a comment for Bitbucket, including severity, tool, and suggestions.
 func formatBitbucketComment(comment *models.ReviewComment) string {
 	body := comment.Content
 	if comment.Severity != "" {
-		body = fmt.Sprintf("**Severity: %s**\n\n%s", comment.Severity, body)
+		if comment.ToolName != "" {
+			body = fmt.Sprintf("**Severity: %s** **Tool: %s**\n\n%s", comment.Severity, comment.ToolName, body)
+		} else {
+			body = fmt.Sprintf("**Severity: %s**\n\n%s", comment.Severity, body)
+		}
+	} else if comment.ToolName != "" {
+		body = fmt.Sprintf("**Tool: %s**\n\n%s", comment.ToolName, body)
 	}
 	if len(comment.Suggestions) > 0 {
 		body += "\n\n**Suggestions:**\n"
@@ -608,9 +614,14 @@ func formatBitbucketComment(comment *models.ReviewComment) string {
 func (p *BitbucketProvider) postGeneralComment(ctx context.Context, workspace, repo, prNumber string, comment *models.ReviewComment) error {
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/comments", workspace, repo, prNumber)
 
+	body := formatBitbucketComment(comment)
+	if comment.FilePath != "" && comment.Line > 0 {
+		body = fmt.Sprintf("**File: `%s` (line %d)**\n\n%s", comment.FilePath, comment.Line, body)
+	}
+
 	payload := map[string]interface{}{
 		"content": map[string]string{
-			"raw": formatBitbucketComment(comment),
+			"raw": body,
 		},
 	}
 

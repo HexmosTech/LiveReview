@@ -84,3 +84,71 @@ export const addRelatedRepository = async (repoId: number, relatedRepoId: number
 export const removeRelatedRepository = async (repoId: number, relationId: number): Promise<{ message: string }> => {
   return apiClient.delete<{ message: string }>(`/api/v1/repositories/${repoId}/related/${relationId}`);
 };
+
+export type RepoToolMode = 'inherit' | 'custom';
+
+export interface RepoToolView {
+  id: number;
+  name: string;
+  description: string;
+  lambda_arn: string;
+  multiplier: number;
+  use_case: string;
+  category?: string;
+  docs_url?: string;
+  enabled: boolean;
+  org_enabled: boolean;
+  repo_enabled?: boolean;
+  config_json?: {
+    include?: string[];
+    exclude?: string[];
+  };
+}
+
+export interface RepoToolRuleConfig {
+  include?: string[];
+  exclude?: string[];
+}
+
+export interface RepositoryToolsResponse {
+  repository_id: number;
+  mode: RepoToolMode;
+  tools: RepoToolView[];
+}
+
+export interface ToolsTomlPreviewResponse {
+  valid: boolean;
+  error?: string;
+  error_line?: number;
+  error_column?: number;
+  enabled_map: Record<string, boolean>;
+  rule_configs: Record<string, RepoToolRuleConfig>;
+  unknown_tools: string[];
+}
+
+/** GET /api/v1/repositories/:repoId/tools - repository PR-only tool settings merged with org defaults. */
+export const getRepositoryTools = async (repoId: number): Promise<RepositoryToolsResponse> => {
+  return apiClient.get<RepositoryToolsResponse>(`/api/v1/repositories/${repoId}/tools`);
+};
+
+/** POST /api/v1/repositories/:repoId/tools/preview - validates unsaved tools.toml text against backend TOML parser. */
+export const previewRepositoryTools = async (
+  repoId: number,
+  toolsToml: string,
+): Promise<ToolsTomlPreviewResponse> => {
+  return apiClient.post<ToolsTomlPreviewResponse>(`/api/v1/repositories/${repoId}/tools/preview`, {
+    tools_toml: toolsToml,
+  });
+};
+
+/** PUT /api/v1/repositories/:repoId/tools - saves PR-only tool mode ('inherit' or 'custom'), tool overrides, and optional include/exclude globs. */
+export const updateRepositoryTools = async (
+  repoId: number,
+  payload: {
+    mode: RepoToolMode;
+    tools?: Record<string, boolean>;
+    tool_configs?: Record<string, RepoToolRuleConfig>;
+  },
+): Promise<RepositoryToolsResponse> => {
+  return apiClient.put<RepositoryToolsResponse>(`/api/v1/repositories/${repoId}/tools`, payload);
+};

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 	storageaiconnectors "github.com/livereview/storage/aiconnectors"
 	storagelicense "github.com/livereview/storage/license"
 	storagepayment "github.com/livereview/storage/payment"
+	storagetools "github.com/livereview/storage/tools"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -815,8 +817,13 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 
 // UpdateQuantity updates the quantity of an existing subscription
 func (s *SubscriptionService) UpdateQuantity(subscriptionID string, quantity int, scheduleChangeAt int64, mode string) (*RazorpaySubscription, error) {
+	return s.UpdateQuantityAndStartAt(subscriptionID, quantity, scheduleChangeAt, 0, mode)
+}
+
+// UpdateQuantityAndStartAt updates the quantity and optionally moves start_at on an existing subscription
+func (s *SubscriptionService) UpdateQuantityAndStartAt(subscriptionID string, quantity int, scheduleChangeAt int64, startAt int64, mode string) (*RazorpaySubscription, error) {
 	// Update in Razorpay
-	sub, err := UpdateSubscriptionQuantity(mode, subscriptionID, quantity, scheduleChangeAt)
+	sub, err := UpdateSubscriptionQuantityAndStartAt(mode, subscriptionID, quantity, scheduleChangeAt, startAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update razorpay subscription: %w", err)
 	}
@@ -1599,6 +1606,11 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 		`, orgID, resolvedPlanCode.String(), periodStart, periodEnd, trialStartedAtValue, trialEndsAtValue)
 		if err != nil {
 			return fmt.Errorf("failed to update org billing state for confirmed purchase: %w", err)
+		}
+
+		// Update tool credits in a separate dedicated function so tool updates never affect the core purchase transaction
+		if toolErr := storagetools.ResetToolCreditsForPlanTx(ctx, tx, int64(orgID), resolvedPlanCode.String()); toolErr != nil {
+			log.Printf("[WARN] Failed to reset tool credits for org %d on confirmed purchase (non-blocking): %v", orgID, toolErr)
 		}
 
 		// Provision the default AI connectors ("LiveReview AI Model") for the

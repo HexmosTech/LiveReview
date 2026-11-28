@@ -11,6 +11,7 @@
 package lrcconfig
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/livereview/cmd/mrmodel/lib"
 	"github.com/livereview/pkg/models"
+	toml "github.com/pelletier/go-toml/v2"
 	gitignore "github.com/sabhiram/go-gitignore"
 )
 
@@ -32,6 +34,8 @@ const rulesPrefix = "rules/"
 const rulesReadmePath = rulesPrefix + "README.md"
 const rulesInstructionsPath = rulesPrefix + "INSTRUCTIONS.md"
 const ignorePath = "ignore"
+const policyToolsTomlPath = "policy/tools.toml"
+const toolsTomlPath = "tools.toml"
 
 // Issue describes a problem found while processing a Bundle.
 type Issue struct {
@@ -205,4 +209,404 @@ func TruncateAtLineBoundary(text string, limit int) string {
 		return text[:limit]
 	}
 	return text[:cut]
+}
+
+// ToolRuleConfig represents per-tool configuration within policy/tools.toml or tools.toml
+type ToolRuleConfig struct {
+	Enabled  *bool    `toml:"enabled"`
+	Category string   `toml:"category"`
+	Include  []string `toml:"include"`
+	Exclude  []string `toml:"exclude"`
+}
+
+// ToolsTomlRuleConfig is the JSON-friendly normalized rule config returned by ValidateToolsToml.
+type ToolsTomlRuleConfig struct {
+	Enabled  bool     `json:"enabled"`
+	Include  []string `json:"include,omitempty"`
+	Exclude  []string `json:"exclude,omitempty"`
+	Category string   `json:"category,omitempty"`
+}
+
+// ToolsTomlValidationResult describes strict syntax + schema validation of tools.toml text.
+type ToolsTomlValidationResult struct {
+	Valid       bool                           `json:"valid"`
+	Error       string                         `json:"error,omitempty"`
+	ErrorLine   int                            `json:"error_line,omitempty"`
+	ErrorColumn int                            `json:"error_column,omitempty"`
+	EnabledMap  map[string]bool                `json:"enabled_map"`
+	RuleConfigs map[string]ToolsTomlRuleConfig `json:"rule_configs"`
+}
+
+// ValidateToolsToml parses and strictly validates `.lrc/policy/tools.toml` using go-toml/v2
+// and the supported tool rule schema (`enabled`, `include`, `exclude`, `category`, `[tools]`).
+func ValidateToolsToml(tomlText string) ToolsTomlValidationResult {
+	fail := func(line, col int, msg string) ToolsTomlValidationResult {
+		formatted := msg
+		if line > 0 && !strings.HasPrefix(msg, "Line ") {
+			if col > 0 {
+				formatted = fmt.Sprintf("Line %d (col %d): %s", line, col, msg)
+			} else {
+				formatted = fmt.Sprintf("Line %d: %s", line, msg)
+			}
+		}
+		return ToolsTomlValidationResult{
+			Valid:       false,
+			Error:       formatted,
+			ErrorLine:   line,
+			ErrorColumn: col,
+			EnabledMap:  map[string]bool{},
+			RuleConfigs: map[string]ToolsTomlRuleConfig{},
+		}
+	}
+
+	var raw map[string]interface{}
+	if err := toml.Unmarshal([]byte(tomlText), &raw); err != nil {
+		var derr *toml.DecodeError
+		if errors.As(err, &derr) {
+			line, col := derr.Position()
+			return fail(line, col, derr.Error())
+		}
+		return fail(0, 0, err.Error())
+	}
+
+	enabledMap := make(map[string]bool)
+	ruleConfigs := make(map[string]ToolsTomlRuleConfig)
+	seenTools := make(map[string]bool)
+
+	validateStringArray := func(val interface{}, key, section string) ([]string, string) {
+		slice, ok := val.([]interface{})
+		if !ok {
+			return nil, fmt.Sprintf("`%s` in [%s] must be an array of strings, e.g. [\"**/*.py\"]", key, section)
+		}
+		out := make([]string, 0, len(slice))
+		for _, item := range slice {
+			s, ok := item.(string)
+			if !ok {
+				return nil, fmt.Sprintf("`%s` in [%s] must contain only strings", key, section)
+			}
+			out = append(out, s)
+		}
+		return out, ""
+	}
+
+	processToolEntry := func(rawToolName, sectionLabel string, val interface{}) string {
+		toolName := strings.ToLower(strings.TrimSpace(rawToolName))
+		if toolName == "" {
+			return fmt.Sprintf("Empty tool name in [%s]", sectionLabel)
+		}
+		if seenTools[toolName] {
+			return fmt.Sprintf("Duplicate configuration for tool %q", toolName)
+		}
+		seenTools[toolName] = true
+
+		switch v := val.(type) {
+		case bool:
+			enabledMap[toolName] = v
+			ruleConfigs[toolName] = ToolsTomlRuleConfig{Enabled: v}
+			return ""
+		case map[string]interface{}:
+			cfg := ToolsTomlRuleConfig{Enabled: true}
+			seenKeys := make(map[string]bool)
+			for fieldKey, fieldVal := range v {
+				lowerField := strings.ToLower(fieldKey)
+				if seenKeys[lowerField] {
+					return fmt.Sprintf("Duplicate key %q in [%s]", lowerField, sectionLabel)
+				}
+				seenKeys[lowerField] = true
+
+				switch lowerField {
+				case "enabled":
+					b, ok := fieldVal.(bool)
+					if !ok {
+						return fmt.Sprintf("`enabled` in [%s] must be true or false", sectionLabel)
+					}
+					cfg.Enabled = b
+				case "include":
+					arr, errMsg := validateStringArray(fieldVal, "include", sectionLabel)
+					if errMsg != "" {
+						return errMsg
+					}
+					cfg.Include = arr
+				case "exclude":
+					arr, errMsg := validateStringArray(fieldVal, "exclude", sectionLabel)
+					if errMsg != "" {
+						return errMsg
+					}
+					cfg.Exclude = arr
+				case "category":
+					cat, ok := fieldVal.(string)
+					if !ok {
+						return fmt.Sprintf("`category` in [%s] must be a quoted string, e.g. \"security\"", sectionLabel)
+					}
+					cfg.Category = cat
+				default:
+					return fmt.Sprintf("Unknown key %q in [%s] (supported keys: enabled, include, exclude, category)", fieldKey, sectionLabel)
+				}
+			}
+			enabledMap[toolName] = cfg.Enabled
+			ruleConfigs[toolName] = cfg
+			return ""
+		default:
+			if sectionLabel == "tools" {
+				return fmt.Sprintf("Expected true/false or a [tools.%s] table under [tools]", rawToolName)
+			}
+			return fmt.Sprintf("Key %q must appear inside a [tool-name] or [tools] section", rawToolName)
+		}
+	}
+
+	keys := make([]string, 0, len(raw))
+	for k := range raw {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		v := raw[k]
+		if strings.EqualFold(k, "tools") {
+			toolsMap, ok := v.(map[string]interface{})
+			if !ok {
+				return fail(0, 0, "[tools] must be a table of tool entries (e.g. ruff = true)")
+			}
+			subKeys := make([]string, 0, len(toolsMap))
+			for sk := range toolsMap {
+				subKeys = append(subKeys, sk)
+			}
+			sort.Strings(subKeys)
+			for _, subK := range subKeys {
+				label := "tools"
+				if _, isTable := toolsMap[subK].(map[string]interface{}); isTable {
+					label = "tools." + subK
+				}
+				if errMsg := processToolEntry(subK, label, toolsMap[subK]); errMsg != "" {
+					return fail(0, 0, errMsg)
+				}
+			}
+			continue
+		}
+
+		if errMsg := processToolEntry(k, k, v); errMsg != "" {
+			return fail(0, 0, errMsg)
+		}
+	}
+
+	return ToolsTomlValidationResult{
+		Valid:       true,
+		EnabledMap:  enabledMap,
+		RuleConfigs: ruleConfigs,
+	}
+}
+
+// ParseToolRuleConfigs reads .lrc/policy/tools.toml or .lrc/tools.toml from a Bundle.
+// Returns a map of tool_name -> *ToolRuleConfig.
+func ParseToolRuleConfigs(b Bundle) (map[string]*ToolRuleConfig, error) {
+	data, ok := b.Files[policyToolsTomlPath]
+	if !ok || len(data) == 0 {
+		data, ok = b.Files[toolsTomlPath]
+	}
+	if !ok || len(data) == 0 {
+		return nil, nil
+	}
+
+	var raw map[string]interface{}
+	if err := toml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse tools.toml: %w", err)
+	}
+
+	results := make(map[string]*ToolRuleConfig)
+
+	processEntry := func(toolName string, val interface{}) {
+		toolName = strings.ToLower(toolName)
+		switch v := val.(type) {
+		case bool:
+			bVal := v
+			results[toolName] = &ToolRuleConfig{Enabled: &bVal}
+		case map[string]interface{}:
+			cfg := &ToolRuleConfig{}
+			if enabledRaw, exists := v["enabled"]; exists && enabledRaw != nil {
+				if enabledVal, ok := enabledRaw.(bool); ok {
+					cfg.Enabled = &enabledVal
+				}
+			}
+			if catRaw, exists := v["category"]; exists && catRaw != nil {
+				if catVal, ok := catRaw.(string); ok {
+					cfg.Category = catVal
+				}
+			}
+			if incRaw, exists := v["include"]; exists && incRaw != nil {
+				if incSlice, ok := incRaw.([]interface{}); ok {
+					for _, item := range incSlice {
+						if str, isStr := item.(string); isStr {
+							cfg.Include = append(cfg.Include, str)
+						}
+					}
+				}
+			}
+			if excRaw, exists := v["exclude"]; exists && excRaw != nil {
+				if excSlice, ok := excRaw.([]interface{}); ok {
+					for _, item := range excSlice {
+						if str, isStr := item.(string); isStr {
+							cfg.Exclude = append(cfg.Exclude, str)
+						}
+					}
+				}
+			}
+			results[toolName] = cfg
+		}
+	}
+
+	for k, v := range raw {
+		if k == "tools" {
+			if toolsMap, ok := v.(map[string]interface{}); ok {
+				for tName, tVal := range toolsMap {
+					if _, exists := results[strings.ToLower(tName)]; !exists {
+						processEntry(tName, tVal)
+					}
+				}
+			}
+		} else {
+			processEntry(k, v)
+		}
+	}
+
+	return results, nil
+}
+
+// ShouldRunToolRuleForDiff determines whether a tool should run against the given local diffs based on ToolRuleConfig.
+func ShouldRunToolRuleForDiff(cfg *ToolRuleConfig, diffs []lib.LocalCodeDiff) bool {
+	if cfg == nil {
+		return true
+	}
+
+	if cfg.Enabled != nil && !*cfg.Enabled {
+		return false
+	}
+
+	if len(diffs) == 0 {
+		return true
+	}
+
+	var includeMatcher *gitignore.GitIgnore
+	if len(cfg.Include) > 0 {
+		includeMatcher = gitignore.CompileIgnoreLines(cfg.Include...)
+	}
+
+	var excludeMatcher *gitignore.GitIgnore
+	if len(cfg.Exclude) > 0 {
+		excludeMatcher = gitignore.CompileIgnoreLines(cfg.Exclude...)
+	}
+
+	if includeMatcher == nil && excludeMatcher == nil {
+		return true
+	}
+
+	matchingFilesCount := 0
+	for _, d := range diffs {
+		path := d.NewPath
+		if path == "" {
+			path = d.OldPath
+		}
+		if path == "" {
+			continue
+		}
+
+		if excludeMatcher != nil && excludeMatcher.MatchesPath(path) {
+			continue
+		}
+
+		if includeMatcher != nil {
+			if includeMatcher.MatchesPath(path) {
+				matchingFilesCount++
+			}
+		} else {
+			matchingFilesCount++
+		}
+	}
+
+	return matchingFilesCount > 0
+}
+
+// FilterLocalCodeDiffsForTool filters local code diffs according to a tool's ToolRuleConfig.
+// It returns a new slice containing only the diffs for file paths that match inclusion and pass exclusion rules.
+func FilterLocalCodeDiffsForTool(cfg *ToolRuleConfig, diffs []lib.LocalCodeDiff) []lib.LocalCodeDiff {
+	if cfg == nil || len(diffs) == 0 {
+		return diffs
+	}
+
+	var includeMatcher *gitignore.GitIgnore
+	if len(cfg.Include) > 0 {
+		includeMatcher = gitignore.CompileIgnoreLines(cfg.Include...)
+	}
+
+	var excludeMatcher *gitignore.GitIgnore
+	if len(cfg.Exclude) > 0 {
+		excludeMatcher = gitignore.CompileIgnoreLines(cfg.Exclude...)
+	}
+
+	if includeMatcher == nil && excludeMatcher == nil {
+		return diffs
+	}
+
+	var filtered []lib.LocalCodeDiff
+	for _, d := range diffs {
+		path := d.NewPath
+		if path == "" {
+			path = d.OldPath
+		}
+		if path == "" {
+			continue
+		}
+
+		if excludeMatcher != nil && excludeMatcher.MatchesPath(path) {
+			continue
+		}
+
+		if includeMatcher != nil {
+			if includeMatcher.MatchesPath(path) {
+				filtered = append(filtered, d)
+			}
+		} else {
+			filtered = append(filtered, d)
+		}
+	}
+
+	return filtered
+}
+
+// FormatLocalDiffs converts a slice of lib.LocalCodeDiff into a standard unified diff string.
+func FormatLocalDiffs(diffs []lib.LocalCodeDiff) string {
+	var b strings.Builder
+	for _, d := range diffs {
+		oldPath := d.OldPath
+		if oldPath == "" {
+			oldPath = d.NewPath
+		}
+		newPath := d.NewPath
+		if newPath == "" {
+			newPath = d.OldPath
+		}
+
+		b.WriteString(fmt.Sprintf("diff --git a/%s b/%s\n", oldPath, newPath))
+		if d.OldPath == "/dev/null" || d.OldPath == "" {
+			b.WriteString("new file mode 100644\n")
+		} else if d.NewPath == "/dev/null" || d.NewPath == "" {
+			b.WriteString("deleted file mode 100644\n")
+		}
+		for _, hunk := range d.Hunks {
+			b.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@", hunk.OldStartLine, hunk.OldLineCount, hunk.NewStartLine, hunk.NewLineCount))
+			if hunk.HeaderText != "" {
+				b.WriteString(" " + hunk.HeaderText)
+			}
+			b.WriteString("\n")
+			for _, line := range hunk.Lines {
+				prefix := " "
+				if line.LineType == "added" {
+					prefix = "+"
+				} else if line.LineType == "deleted" {
+					prefix = "-"
+				}
+				b.WriteString(prefix + line.Content + "\n")
+			}
+		}
+	}
+	return b.String()
 }

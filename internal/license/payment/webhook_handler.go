@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -20,6 +21,7 @@ import (
 	"github.com/labstack/echo/v4"
 	storagelicense "github.com/livereview/storage/license"
 	storagepayment "github.com/livereview/storage/payment"
+	storagetools "github.com/livereview/storage/tools"
 )
 
 // RazorpayWebhookHandler handles Razorpay webhook events
@@ -234,6 +236,11 @@ func (h *RazorpayWebhookHandler) consumeTrialEligibilityTx(ctx context.Context, 
 	)
 	if err != nil {
 		return fmt.Errorf("upsert org trial window for subscription %s: %w", sub.ID, err)
+	}
+
+	// Update tool credits in a separate dedicated function
+	if toolErr := storagetools.ResetToolCreditsForPlanTx(ctx, tx, int64(orgID), string(resolvedPlanCode)); toolErr != nil {
+		log.Printf("[WARN] Failed to reset tool credits for subscription trial %s (non-blocking): %v", sub.ID, toolErr)
 	}
 
 	return nil
@@ -649,6 +656,13 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 			if err != nil {
 				return fmt.Errorf("failed to update org billing state after captured charge: %w", err)
 			}
+
+			// Update tool credits in a separate dedicated function with bounded timeout
+			toolCtx, toolCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if toolErr := storagetools.ResetToolCreditsForPlanTx(toolCtx, tx, int64(orgID), resolvedPlanCode.String()); toolErr != nil {
+				log.Printf("[WARN] Failed to update tool credits for captured charge %s (non-blocking): %v", sub.ID, toolErr)
+			}
+			toolCancel()
 		}
 	}
 

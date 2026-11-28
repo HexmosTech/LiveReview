@@ -634,6 +634,77 @@ func TestDiffReviewPollingWithCompletedStatus(t *testing.T) {
 	t.Logf("✓ polling returns completed status with full results")
 }
 
+// TestDiffReviewFailedStatusPreservesPartialComments verifies that when a review fails
+// (e.g. AI stage error), tool comments or streamed comments present in review_result
+// metadata are retained in files rather than dropped to empty.
+func TestDiffReviewFailedStatusPreservesPartialComments(t *testing.T) {
+	mockRM := newMockReviewManager()
+
+	review, _ := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{}, 1, "", "", "")
+
+	diff := "diff --git a/src/auth.py b/src/auth.py\n--- a/src/auth.py\n+++ b/src/auth.py\n@@ -1,0 +1,1 @@\n+token = 'secret'\n"
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	mustWrite(t, zw, "diff.txt", diff)
+	zw.Close()
+	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
+
+	metadata := map[string]interface{}{
+		"preloaded_changes": encoded,
+		"failure_reason":    "review processing encountered errors",
+		"review_result": map[string]interface{}{
+			"summary": "",
+			"comments": []map[string]interface{}{
+				{
+					"file_path": "src/auth.py",
+					"line":      1,
+					"content":   "Potential secret leak detected",
+					"severity":  "critical",
+					"source":    "tool",
+					"tool_name": "gitleaks",
+				},
+			},
+		},
+	}
+	mockRM.MergeReviewMetadata(review.ID, metadata)
+	mockRM.UpdateReviewStatus(review.ID, "failed")
+
+	storedReview, err := mockRM.GetReview(review.ID)
+	if err != nil {
+		t.Fatalf("failed to get review: %v", err)
+	}
+	if storedReview.Status != "failed" {
+		t.Fatalf("expected failed status, got %s", storedReview.Status)
+	}
+
+	var storedMeta map[string]interface{}
+	json.Unmarshal(storedReview.Metadata, &storedMeta)
+
+	result, err := decodeReviewResult(storedMeta)
+	if err != nil {
+		t.Fatalf("decodeReviewResult failed: %v", err)
+	}
+	if len(result.Comments) != 1 {
+		t.Fatalf("expected 1 comment decoded, got %d", len(result.Comments))
+	}
+
+	localDiffs, _, _ := diffutil.ParseDiffZipBase64(encoded)
+	preloaded := diffutil.ConvertLocalDiffs(localDiffs)
+	files := buildDiffFiles(modelsSlice(preloaded), result.Comments)
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+	comments, ok := files[0]["comments"].([]map[string]interface{})
+	if !ok || len(comments) != 1 {
+		t.Fatalf("expected 1 comment attached to file, got %v", files[0]["comments"])
+	}
+	if comments[0]["content"] != "Potential secret leak detected" {
+		t.Fatalf("expected tool comment content, got %v", comments[0]["content"])
+	}
+
+	t.Logf("✓ failed review preserves partial tool comments in files")
+}
+
 // TestDiffReviewAllFilesExcludedCompletesImmediately verifies that when
 // .lrc/ignore excludes every changed file, the review is completed with zero
 // comments and a summary explaining the exclusion — mirroring the handler's

@@ -50,6 +50,9 @@ func (s *Server) recordAuditRequest(c echo.Context, handlerErr error, reqID stri
 	}
 
 	status := responseStatus(c, handlerErr)
+	if hasSpec && spec.Capture == auditlog.CaptureAttemptsOnly && status >= 200 && status < 300 {
+		return
+	}
 	if status >= 200 && status < 300 && auditlog.WasRecorded(c) {
 		return
 	}

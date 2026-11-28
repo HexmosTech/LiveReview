@@ -198,12 +198,20 @@ func GetSubscriptionByID(mode, subscriptionID string) (*RazorpaySubscription, er
 // UpdateSubscriptionQuantity updates the quantity of a subscription
 // scheduleChangeAt: Unix timestamp when to apply the change (0 for end of current cycle)
 func UpdateSubscriptionQuantity(mode, subscriptionID string, quantity int, scheduleChangeAt int64) (*RazorpaySubscription, error) {
+	return UpdateSubscriptionQuantityAndStartAt(mode, subscriptionID, quantity, scheduleChangeAt, 0)
+}
+
+// UpdateSubscriptionQuantityAndStartAt updates the quantity and optionally moves start_at on a subscription
+func UpdateSubscriptionQuantityAndStartAt(mode, subscriptionID string, quantity int, scheduleChangeAt int64, startAt int64) (*RazorpaySubscription, error) {
 	accessKey, secretKey, err := GetRazorpayKeys(mode)
 	if err != nil {
 		return nil, err
 	}
 
 	updateReq := buildUpdateSubscriptionRequest(quantity, scheduleChangeAt)
+	if startAt > 0 {
+		updateReq["start_at"] = startAt
+	}
 
 	jsonData, err := json.Marshal(updateReq)
 	if err != nil {

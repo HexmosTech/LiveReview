@@ -12,8 +12,10 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/internal/license"
+	"github.com/livereview/internal/license/payment"
 	"github.com/livereview/pkg/models"
 	storagelicense "github.com/livereview/storage/license"
+	storagepayment "github.com/livereview/storage/payment"
 )
 
 func TestLOCPlanToQuantity(t *testing.T) {
@@ -210,5 +212,139 @@ func TestBuildTrialEligibilityViewLookupFailure(t *testing.T) {
 	}
 	if got := view["reason"]; got != "eligibility_lookup_failed" {
 		t.Fatalf("reason = %v, want eligibility_lookup_failed", got)
+	}
+}
+
+func TestSelectActiveOrAuthenticatedSubscription(t *testing.T) {
+	tests := []struct {
+		name       string
+		rows       []storagepayment.OrgSubscriptionRow
+		wantSubID  string
+		wantStatus string
+		wantOK     bool
+	}{
+		{
+			name:   "empty slice returns false",
+			rows:   []storagepayment.OrgSubscriptionRow{},
+			wantOK: false,
+		},
+		{
+			name: "only created or cancelled returns false",
+			rows: []storagepayment.OrgSubscriptionRow{
+				{RazorpaySubscriptionID: "sub_created_1", Status: "created"},
+				{RazorpaySubscriptionID: "sub_cancelled_1", Status: "cancelled"},
+			},
+			wantOK: false,
+		},
+		{
+			name: "prefers active over authenticated and created",
+			rows: []storagepayment.OrgSubscriptionRow{
+				{RazorpaySubscriptionID: "sub_created_latest", Status: "created"},
+				{RazorpaySubscriptionID: "sub_trial", Status: "authenticated"},
+				{RazorpaySubscriptionID: "sub_active", Status: "active"},
+			},
+			wantSubID:  "sub_active",
+			wantStatus: "active",
+			wantOK:     true,
+		},
+		{
+			name: "prefers authenticated trial over created draft",
+			rows: []storagepayment.OrgSubscriptionRow{
+				{RazorpaySubscriptionID: "sub_created_draft", Status: "created"},
+				{RazorpaySubscriptionID: "sub_trial_auth", Status: "authenticated"},
+			},
+			wantSubID:  "sub_trial_auth",
+			wantStatus: "authenticated",
+			wantOK:     true,
+		},
+		{
+			name: "case insensitive status check",
+			rows: []storagepayment.OrgSubscriptionRow{
+				{RazorpaySubscriptionID: "sub_auth_upper", Status: " AUTHENTICATED "},
+			},
+			wantSubID:  "sub_auth_upper",
+			wantStatus: " AUTHENTICATED ",
+			wantOK:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := selectActiveOrAuthenticatedSubscription(tt.rows)
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
+			}
+			if tt.wantOK {
+				if got.RazorpaySubscriptionID != tt.wantSubID {
+					t.Fatalf("subscription ID = %q, want %q", got.RazorpaySubscriptionID, tt.wantSubID)
+				}
+				if got.Status != tt.wantStatus {
+					t.Fatalf("status = %q, want %q", got.Status, tt.wantStatus)
+				}
+			}
+		})
+	}
+}
+
+func TestIsTrialUpgrade(t *testing.T) {
+	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	futureTrial := sql.NullTime{Time: now.Add(4 * 24 * time.Hour), Valid: true}
+	pastTrial := sql.NullTime{Time: now.Add(-1 * time.Hour), Valid: true}
+	nullTrial := sql.NullTime{Valid: false}
+
+	authSub := &payment.RazorpaySubscription{Status: "authenticated"}
+	activeSub := &payment.RazorpaySubscription{Status: "active"}
+
+	tests := []struct {
+		name         string
+		trialEndsAt  sql.NullTime
+		activeStatus string
+		razorpaySub  *payment.RazorpaySubscription
+		want         bool
+	}{
+		{
+			name:         "active trial with authenticated subscription is trial upgrade",
+			trialEndsAt:  futureTrial,
+			activeStatus: "authenticated",
+			razorpaySub:  authSub,
+			want:         true,
+		},
+		{
+			name:         "active trial but active razorpay subscription (already billed) is not trial upgrade",
+			trialEndsAt:  futureTrial,
+			activeStatus: "active",
+			razorpaySub:  activeSub,
+			want:         false,
+		},
+		{
+			name:         "expired trial with authenticated subscription is not trial upgrade",
+			trialEndsAt:  pastTrial,
+			activeStatus: "authenticated",
+			razorpaySub:  authSub,
+			want:         false,
+		},
+		{
+			name:         "null trial (already paid user) even if razorpay authenticated is not trial upgrade",
+			trialEndsAt:  nullTrial,
+			activeStatus: "authenticated",
+			razorpaySub:  authSub,
+			want:         false,
+		},
+		{
+			name:         "null trial on active subscription is not trial upgrade",
+			trialEndsAt:  nullTrial,
+			activeStatus: "active",
+			razorpaySub:  activeSub,
+			want:         false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isTrialUpgrade(tt.trialEndsAt, now, tt.activeStatus, tt.razorpaySub)
+			if got != tt.want {
+				t.Fatalf("isTrialUpgrade() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

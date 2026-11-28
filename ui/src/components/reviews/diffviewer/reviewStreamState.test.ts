@@ -79,6 +79,31 @@ describe('normalizeStreamedComment', () => {
     expect(normalizeStreamedComment({ FilePath: 'a.go', Line: 1, Content: 'x', IsInternal: true })).toBeNull();
     expect(normalizeStreamedComment({ FilePath: '', Line: 1, Content: 'x' })).toBeNull();
     expect(normalizeStreamedComment(null)).toBeNull();
+
+    const streamedTool = normalizeStreamedComment({
+      FilePath: 'b.py',
+      Line: 5,
+      Content: 'unused import',
+      Severity: 'WARNING',
+      Category: 'Maintainability',
+      Subcategory: 'Dead Code',
+      Source: 'tool',
+      ToolName: 'ruff',
+      ToolCategory: 'Code Quality',
+    });
+    expect(streamedTool).toEqual({
+      file_path: 'b.py',
+      line: 5,
+      content: 'unused import',
+      severity: 'warning',
+      confidence: '',
+      type: '',
+      category: 'Maintainability',
+      subcategory: 'Dead Code',
+      source: 'tool',
+      tool_name: 'ruff',
+      tool_category: 'Code Quality',
+    });
   });
 });
 

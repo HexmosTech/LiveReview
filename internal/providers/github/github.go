@@ -95,7 +95,13 @@ func formatGitHubComment(comment *models.ReviewComment) string {
 
 	// Add severity information at the beginning
 	if comment.Severity != "" {
-		formattedComment = fmt.Sprintf("**Severity: %s**\n\n%s", comment.Severity, formattedComment)
+		if comment.ToolName != "" {
+			formattedComment = fmt.Sprintf("**Severity: %s** **Tool: %s**\n\n%s", comment.Severity, comment.ToolName, formattedComment)
+		} else {
+			formattedComment = fmt.Sprintf("**Severity: %s**\n\n%s", comment.Severity, formattedComment)
+		}
+	} else if comment.ToolName != "" {
+		formattedComment = fmt.Sprintf("**Tool: %s**\n\n%s", comment.ToolName, formattedComment)
 	}
 
 	// Add suggestions section if we have any

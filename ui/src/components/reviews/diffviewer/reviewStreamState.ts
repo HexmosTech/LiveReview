@@ -143,6 +143,14 @@ interface RawStreamedComment {
   category?: string;
   Subcategory?: string;
   subcategory?: string;
+  Source?: string;
+  source?: string;
+  ToolName?: string;
+  toolName?: string;
+  tool_name?: string;
+  ToolCategory?: string;
+  toolCategory?: string;
+  tool_category?: string;
   IsInternal?: boolean;
   isInternal?: boolean;
 }
@@ -165,7 +173,7 @@ export function normalizeStreamedComment(rawComment: RawStreamedComment | null |
     return null;
   }
 
-  return {
+  const normalized: DiffReviewComment & { file_path: string } = {
     file_path: filePath,
     line,
     content,
@@ -175,6 +183,21 @@ export function normalizeStreamedComment(rawComment: RawStreamedComment | null |
     category: String(rawComment.Category ?? rawComment.category ?? 'review').trim() || 'review',
     subcategory: String(rawComment.Subcategory ?? rawComment.subcategory ?? '').trim(),
   };
+
+  const source = String(rawComment.Source ?? rawComment.source ?? '').trim();
+  if (source) {
+    normalized.source = source;
+  }
+  const toolName = String(rawComment.ToolName ?? rawComment.toolName ?? rawComment.tool_name ?? '').trim();
+  if (toolName) {
+    normalized.tool_name = toolName;
+  }
+  const toolCategory = String(rawComment.ToolCategory ?? rawComment.toolCategory ?? rawComment.tool_category ?? '').trim();
+  if (toolCategory) {
+    normalized.tool_category = toolCategory;
+  }
+
+  return normalized;
 }
 
 export function extractExternalCommentsFromEvents(events: ReviewEvent[] | undefined): (DiffReviewComment & { file_path: string })[] {

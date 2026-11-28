@@ -530,7 +530,6 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp := mcpserver.New(e)
 	mcp.RegisterSchema("POST", "/api/v1/connectors/trigger-review", nil, TriggerReviewRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/integration_tokens/pat", nil, CreatePATRequest{})
-	mcp.RegisterSchema("GET", "/api/v1/diff-review/trigger-local-review", nil, nil)
 	mcp.RegisterSchema("POST", "/api/v1/billing/upgrade/preview", nil, PlanChangeRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/aiconnectors", nil, AIConnectorCreateRequest{})
 	mcp.RegisterSchema("GET", "/api/v1/aiconnectors/providers", nil, nil)
@@ -559,7 +558,6 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/auth/me",
 		"/api/v1/connectors/trigger-review",
 		"/api/v1/integration_tokens/pat",
-		"/api/v1/diff-review/trigger-local-review",
 		"/api/v1/quota/status",
 		"/api/v1/billing/status",
 		"/api/v1/billing/usage/summary",
@@ -1275,7 +1273,6 @@ func (s *Server) setupRoutes() {
 	diffReviewGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db, s.licenseService()))
 	diffReviewGroup.Use(apimiddleware.BuildPlanContext())
 	diffReviewGroup.POST("", s.DiffReview)
-	diffReviewGroup.GET("/trigger-local-review", s.TriggerLocalReview)
 	diffReviewGroup.GET("/:review_id", s.GetDiffReviewStatus)
 	// Generic artifact sync channel (see AGENTS.md "Porting from git-lrc") —
 	// fire-and-forget uploads of locally-computed, per-review data such as
@@ -1505,6 +1502,9 @@ func (s *Server) setupRoutes() {
 		ResourceType: "audit", Sensitive: true,
 	}, s.RunAuditMaintenance)
 
+	// Super admin tools catalog endpoint (read-only; tool definitions are managed via lr-tools)
+	adminGroup.GET("/tools", s.ListAvailableTools)
+
 	// Instance-wide config (SMTP, blob storage, production URL): self-hosted org
 	// owners may also manage it, but in cloud mode this config is shared across
 	// every tenant, so it stays super-admin-only there.
@@ -1605,6 +1605,10 @@ func (s *Server) setupRoutes() {
 	orgGroup.GET("/audit-events/export", s.ExportAuditEvents)
 	orgGroup.GET("/audit-events/archive", s.DownloadAuditArchive)
 	orgGroup.GET("/audit-events/:id", s.GetAuditEvent)
+
+	// Third-party tools endpoints within org context
+	orgGroup.GET("/tools", s.ListOrgTools)
+	orgGroup.PUT("/tools/:tool_id", s.UpdateOrgTool)
 
 	// Organization creation - available to all authenticated users
 	protectedOrgsGroup.POST("/organizations", s.orgHandlers.CreateOrganization)
@@ -1757,6 +1761,22 @@ func (s *Server) setupRoutes() {
 	repositoriesGroup.POST("/:repoId/sync", s.TriggerRepositoryPRSync)
 	repositoriesGroup.GET("/:repoId/cache", s.GetRepositoryCache)
 	repositoriesGroup.DELETE("/:repoId/cache", s.ClearRepositoryCache)
+	repositoriesGroup.GET("/:repoId/tools", s.GetRepositoryTools)
+	s.audited(repositoriesGroup, echo.POST, "/:repoId/tools/preview", auditlog.Spec{
+		Action:          auditlog.ActionRepositoryToolsPreview,
+		Category:        auditlog.CategoryRepository,
+		ResourceType:    "repository",
+		ResourceIDParam: "repoId",
+		Severity:        auditlog.SeverityInfo,
+		Capture:         auditlog.CaptureAttemptsOnly,
+	}, s.PreviewRepositoryTools)
+	s.audited(repositoriesGroup, echo.PUT, "/:repoId/tools", auditlog.Spec{
+		Action:          auditlog.ActionRepositoryToolsUpdate,
+		Category:        auditlog.CategoryRepository,
+		ResourceType:    "repository",
+		ResourceIDParam: "repoId",
+		Severity:        auditlog.SeverityWarning,
+	}, s.UpdateRepositoryTools)
 	repositoriesGroup.GET("/:repoId/pull-requests", s.ListPullRequestsForRepo)
 	repositoriesGroup.GET("/:repoId/pull-requests/:prId", s.GetPullRequest)
 	repositoriesGroup.GET("/:repoId/scheduled-review-runs", s.GetScheduledReviewRuns)

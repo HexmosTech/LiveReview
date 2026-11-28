@@ -5,10 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
+
+	storagetools "github.com/livereview/storage/tools"
 )
 
 // EventSink defines the interface for broadcasting events
@@ -578,6 +581,300 @@ func (s *PollingEventService) CreateCompletionEvent(ctx context.Context, reviewI
 	return s.repo.createTypedEvent(ctx, reviewID, orgID, "completion", "info", nil, data)
 }
 
+// SeverityCounts provides counts of events by severity level
+type SeverityCounts struct {
+	High   int `json:"high"`
+	Medium int `json:"medium"`
+	Low    int `json:"low"`
+}
+
+// ToolBreakdownItem represents status and findings for an individual tool
+type ToolBreakdownItem struct {
+	ToolName          string  `json:"toolName"`
+	CreditsUsed       float64 `json:"creditsUsed"`
+	CommentsGenerated int     `json:"commentsGenerated"`
+	Status            string  `json:"status"` // pending, running, clean, completed, failed
+}
+
+// ToolSummary provides summary metrics and breakdown for tool execution
+type ToolSummary struct {
+	ToolsExecuted          int                 `json:"toolsExecuted"`
+	TotalCommentsGenerated int                 `json:"totalCommentsGenerated"`
+	TotalCostUsd           *float64            `json:"totalCostUsd,omitempty"`
+	ToolBreakdown          []ToolBreakdownItem `json:"toolBreakdown"`
+}
+
+func addSeverityCount(counts *SeverityCounts, raw string, delta int) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "critical", "high", "error":
+		counts.High += delta
+	case "warning", "medium", "warn":
+		counts.Medium += delta
+	case "info", "low":
+		counts.Low += delta
+	}
+}
+
+func accumulateSeverityRows(rows *sql.Rows) (SeverityCounts, bool, error) {
+	var counts SeverityCounts
+	if rows == nil {
+		return counts, false, nil
+	}
+	defer rows.Close()
+	hasRows := false
+	for rows.Next() {
+		var sev string
+		var cnt int
+		if err := rows.Scan(&sev, &cnt); err != nil {
+			return SeverityCounts{}, false, err
+		}
+		hasRows = true
+		addSeverityCount(&counts, sev, cnt)
+	}
+	if err := rows.Err(); err != nil {
+		return SeverityCounts{}, false, err
+	}
+	return counts, hasRows, nil
+}
+
+// GetSeverityCounts counts High, Medium, and Low severity issues from
+// review_result.comments first, then ai_comments, completed batch events, and
+// finally individual severity/error/warn events.
+func (r *ReviewEventsRepo) GetSeverityCounts(ctx context.Context, reviewID, orgID int64) (SeverityCounts, error) {
+	const queryReviewResult = `
+		SELECT COALESCE(NULLIF(c->>'severity', ''), NULLIF(c->>'Severity', ''), 'warning') AS sev, COUNT(*)
+		FROM public.reviews r
+		CROSS JOIN LATERAL jsonb_array_elements(
+			CASE
+				WHEN jsonb_typeof(r.metadata->'review_result'->'comments') = 'array'
+				THEN r.metadata->'review_result'->'comments'
+				ELSE '[]'::jsonb
+			END
+		) AS c
+		WHERE r.id = $1 AND r.org_id = $2
+		GROUP BY COALESCE(NULLIF(c->>'severity', ''), NULLIF(c->>'Severity', ''), 'warning')
+	`
+	const queryAIComments = `
+		SELECT COALESCE(NULLIF(content->>'severity', ''), NULLIF(content->>'Severity', ''), 'warning') AS sev, COUNT(*)
+		FROM public.ai_comments
+		WHERE review_id = $1 AND org_id = $2
+		GROUP BY COALESCE(NULLIF(content->>'severity', ''), NULLIF(content->>'Severity', ''), 'warning')
+	`
+	const queryBatchEvents = `
+		SELECT COALESCE(NULLIF(c->>'severity', ''), NULLIF(c->>'Severity', ''), 'warning') AS sev, COUNT(*)
+		FROM public.review_events e
+		CROSS JOIN LATERAL jsonb_array_elements(
+			CASE
+				WHEN jsonb_typeof(e.data->'comments') = 'array'
+				THEN e.data->'comments'
+				ELSE '[]'::jsonb
+			END
+		) AS c
+		WHERE e.review_id = $1
+		  AND e.org_id = $2
+		  AND e.event_type = 'batch'
+		  AND (e.data->>'status' = 'completed' OR e.data->>'status' IS NULL)
+		GROUP BY COALESCE(NULLIF(c->>'severity', ''), NULLIF(c->>'Severity', ''), 'warning')
+	`
+
+	sources := []struct {
+		name  string
+		query string
+	}{
+		{name: "review_result comments", query: queryReviewResult},
+		{name: "ai_comments", query: queryAIComments},
+		{name: "batch events", query: queryBatchEvents},
+	}
+
+	for _, src := range sources {
+		rows, err := r.db.QueryContext(ctx, src.query, reviewID, orgID)
+		if err != nil {
+			if ctx.Err() != nil {
+				return SeverityCounts{}, fmt.Errorf("severity counts query aborted (%s): %w", src.name, err)
+			}
+			log.Printf("[WARN] Failed to query %s for severity counts (review_id=%d, org_id=%d): %v", src.name, reviewID, orgID, err)
+			continue
+		}
+		counts, hasRows, scanErr := accumulateSeverityRows(rows)
+		if scanErr != nil {
+			log.Printf("[WARN] Failed to scan %s for severity counts (review_id=%d, org_id=%d): %v", src.name, reviewID, orgID, scanErr)
+			continue
+		}
+		if hasRows {
+			return counts, nil
+		}
+	}
+
+	const queryEvents = `
+		SELECT COALESCE(data->>'severity', level) AS sev, COUNT(*)
+		FROM public.review_events
+		WHERE review_id = $1 AND org_id = $2 AND (data->>'severity' IS NOT NULL OR level IN ('error', 'warn'))
+		GROUP BY COALESCE(data->>'severity', level)
+	`
+	eventRows, eventErr := r.db.QueryContext(ctx, queryEvents, reviewID, orgID)
+	if eventErr != nil {
+		log.Printf("[WARN] Failed to query review_events for severity counts (review_id=%d, org_id=%d): %v", reviewID, orgID, eventErr)
+		return SeverityCounts{}, fmt.Errorf("failed to query review_events for severity counts: %w", eventErr)
+	}
+	counts, _, scanErr := accumulateSeverityRows(eventRows)
+	if scanErr != nil {
+		return SeverityCounts{}, fmt.Errorf("failed to scan review_events severity counts: %w", scanErr)
+	}
+	return counts, nil
+}
+
+type rawToolEvent struct {
+	EventType string
+	Data      json.RawMessage
+	CreatedAt time.Time
+}
+
+// GetToolSummary queries tool_dispatch and tool_result events to build ToolSummary
+func (r *ReviewEventsRepo) GetToolSummary(ctx context.Context, reviewID, orgID int64) (*ToolSummary, error) {
+	query := `
+		SELECT event_type, data, ts
+		FROM public.review_events
+		WHERE review_id = $1 AND org_id = $2 AND event_type IN ('tool_dispatch', 'tool_result')
+		ORDER BY ts ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query, reviewID, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query tool summary: %w", err)
+	}
+	defer rows.Close()
+
+	var toolEvents []rawToolEvent
+	for rows.Next() {
+		var ev rawToolEvent
+		if err := rows.Scan(&ev.EventType, &ev.Data, &ev.CreatedAt); err != nil {
+			return nil, err
+		}
+		toolEvents = append(toolEvents, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(toolEvents) == 0 {
+		return nil, nil
+	}
+
+	type toolDispatchData struct {
+		ToolID   int64  `json:"tool_id"`
+		ToolName string `json:"tool_name"`
+		Status   string `json:"status"`
+	}
+	type toolFinding struct {
+		File    string `json:"file"`
+		Line    int    `json:"line"`
+		Message string `json:"message"`
+	}
+	type toolResultData struct {
+		ToolID        int64         `json:"tool_id"`
+		ToolName      string        `json:"tool_name"`
+		ExitCode      int           `json:"exit_code"`
+		Findings      []toolFinding `json:"findings"`
+		LinesOfCode   int           `json:"lines_of_code"`
+		Stderr        string        `json:"stderr"`
+		Truncated     bool          `json:"truncated,omitempty"`
+		FailureReason string        `json:"failure_reason,omitempty"`
+	}
+
+	dispatchedMap := make(map[string]time.Time)
+	runningMap := make(map[string]bool)
+	dispatchedOrder := make([]string, 0)
+	resultsMap := make(map[string]toolResultData)
+
+	for _, ev := range toolEvents {
+		if ev.EventType == "tool_dispatch" {
+			var d toolDispatchData
+			if err := json.Unmarshal(ev.Data, &d); err == nil && d.ToolName != "" {
+				if _, exists := dispatchedMap[d.ToolName]; !exists {
+					dispatchedMap[d.ToolName] = ev.CreatedAt
+					dispatchedOrder = append(dispatchedOrder, d.ToolName)
+				}
+				if strings.EqualFold(strings.TrimSpace(d.Status), "running") {
+					runningMap[d.ToolName] = true
+				}
+			}
+		} else if ev.EventType == "tool_result" {
+			var res toolResultData
+			if err := json.Unmarshal(ev.Data, &res); err == nil && res.ToolName != "" {
+				resultsMap[res.ToolName] = res
+				if _, exists := dispatchedMap[res.ToolName]; !exists {
+					dispatchedMap[res.ToolName] = ev.CreatedAt
+					dispatchedOrder = append(dispatchedOrder, res.ToolName)
+				}
+			}
+		}
+	}
+
+	// Fetch multipliers from catalog
+	multiplierMap := make(map[string]float64)
+	toolsStore := storagetools.NewToolsStore(r.db)
+	if catalog, err := toolsStore.LoadCatalog(ctx); err == nil {
+		for _, t := range catalog {
+			multiplierMap[strings.ToLower(t.Name)] = t.Multiplier
+		}
+	}
+
+	toolBreakdown := make([]ToolBreakdownItem, 0, len(dispatchedOrder))
+	totalComments := 0
+	toolsExecuted := 0
+	totalCostUSD := 0.0
+
+	for _, toolName := range dispatchedOrder {
+		res, hasResult := resultsMap[toolName]
+		dispatchTime := dispatchedMap[toolName]
+
+		mult, exists := multiplierMap[strings.ToLower(toolName)]
+		if !exists || mult <= 0 {
+			mult = 1.0
+		}
+		totalCostUSD += mult
+
+		item := ToolBreakdownItem{
+			ToolName:    toolName,
+			CreditsUsed: mult,
+		}
+
+		if hasResult {
+			toolsExecuted++
+			commentCount := len(res.Findings)
+			item.CommentsGenerated = commentCount
+			totalComments += commentCount
+
+			if commentCount > 0 {
+				if res.Truncated {
+					item.Status = "partial"
+				} else {
+					item.Status = "completed"
+				}
+			} else if res.ExitCode != 0 || res.FailureReason != "" {
+				item.Status = "failed"
+			} else if res.Truncated {
+				item.Status = "partial"
+			} else {
+				item.Status = "clean"
+			}
+		} else {
+			if runningMap[toolName] || time.Since(dispatchTime) > 10*time.Second {
+				item.Status = "running"
+			} else {
+				item.Status = "pending"
+			}
+		}
+		toolBreakdown = append(toolBreakdown, item)
+	}
+
+	return &ToolSummary{
+		ToolsExecuted:          toolsExecuted,
+		TotalCommentsGenerated: totalComments,
+		TotalCostUsd:           &totalCostUSD,
+		ToolBreakdown:          toolBreakdown,
+	}, nil
+}
+
 // GetReviewSummary creates a summary of recent review activity for display
 func (s *PollingEventService) GetReviewSummary(ctx context.Context, reviewID, orgID int64) (*ReviewSummary, error) {
 	latestStatus, err := s.GetLatestStatus(ctx, reviewID, orgID)
@@ -594,11 +891,25 @@ func (s *PollingEventService) GetReviewSummary(ctx context.Context, reviewID, or
 	if err != nil {
 		return nil, fmt.Errorf("failed to count batch IDs: %w", err)
 	}
+
+	sevCounts, err := s.repo.GetSeverityCounts(ctx, reviewID, orgID)
+	if err != nil {
+		// Log or ignore non-critical severity error
+		sevCounts = SeverityCounts{}
+	}
+
+	toolSum, err := s.repo.GetToolSummary(ctx, reviewID, orgID)
+	if err != nil {
+		toolSum = nil
+	}
+
 	summary := &ReviewSummary{
-		ReviewID:     reviewID,
-		LastActivity: time.Now(),
-		EventCounts:  counts,
-		BatchCount:   batchCount,
+		ReviewID:       reviewID,
+		LastActivity:   time.Now(),
+		EventCounts:    counts,
+		BatchCount:     batchCount,
+		SeverityCounts: sevCounts,
+		ToolSummary:    toolSum,
 	}
 
 	if latestStatus != nil {
@@ -614,11 +925,13 @@ func (s *PollingEventService) GetReviewSummary(ctx context.Context, reviewID, or
 
 // ReviewSummary provides a quick overview of review progress
 type ReviewSummary struct {
-	ReviewID      int64          `json:"reviewId"`
-	CurrentStatus string         `json:"currentStatus"`
-	LastActivity  time.Time      `json:"lastActivity"`
-	EventCounts   map[string]int `json:"eventCounts"`
-	BatchCount    int            `json:"batchCount"`
+	ReviewID       int64          `json:"reviewId"`
+	CurrentStatus  string         `json:"currentStatus"`
+	LastActivity   time.Time      `json:"lastActivity"`
+	EventCounts    map[string]int `json:"eventCounts"`
+	BatchCount     int            `json:"batchCount"`
+	SeverityCounts SeverityCounts `json:"severityCounts"`
+	ToolSummary    *ToolSummary   `json:"toolSummary,omitempty"`
 }
 
 // DatabaseEventSink implements ReviewEventSink using our PollingEventService
@@ -628,6 +941,9 @@ type DatabaseEventSink struct {
 
 // NewDatabaseEventSink creates a new database event sink
 func NewDatabaseEventSink(db *sql.DB) *DatabaseEventSink {
+	if db == nil {
+		return nil
+	}
 	return &DatabaseEventSink{
 		service: NewPollingEventService(db),
 	}
@@ -635,16 +951,25 @@ func NewDatabaseEventSink(db *sql.DB) *DatabaseEventSink {
 
 // EmitEvent implements the basic EventSink interface
 func (s *DatabaseEventSink) EmitEvent(ctx context.Context, event *ReviewEvent) error {
+	if s == nil || s.service == nil {
+		return nil
+	}
 	return s.service.EmitEvent(ctx, event)
 }
 
 // EmitStatusEvent emits a status change event
 func (s *DatabaseEventSink) EmitStatusEvent(ctx context.Context, reviewID, orgID int64, status string) error {
+	if s == nil || s.service == nil {
+		return nil
+	}
 	return s.service.CreateStatusEvent(ctx, reviewID, orgID, status, nil, nil)
 }
 
 // EmitLogEvent emits a log message event
 func (s *DatabaseEventSink) EmitLogEvent(ctx context.Context, reviewID, orgID int64, level, message, batchID string) error {
+	if s == nil || s.service == nil {
+		return nil
+	}
 	var batchIDPtr *string
 	if batchID != "" {
 		batchIDPtr = &batchID
@@ -654,6 +979,9 @@ func (s *DatabaseEventSink) EmitLogEvent(ctx context.Context, reviewID, orgID in
 
 // EmitBatchEvent emits a batch progress event
 func (s *DatabaseEventSink) EmitBatchEvent(ctx context.Context, reviewID, orgID int64, batchID, status string, tokenEstimate, fileCount int, comments interface{}) error {
+	if s == nil || s.service == nil {
+		return nil
+	}
 	var tokenPtr, filePtr *int
 	if tokenEstimate > 0 {
 		tokenPtr = &tokenEstimate
@@ -666,6 +994,9 @@ func (s *DatabaseEventSink) EmitBatchEvent(ctx context.Context, reviewID, orgID 
 
 // EmitArtifactEvent emits an artifact reference event
 func (s *DatabaseEventSink) EmitArtifactEvent(ctx context.Context, reviewID, orgID int64, kind, url, batchID string, sizeBytes int64, previewHead, previewTail string) error {
+	if s == nil || s.service == nil {
+		return nil
+	}
 	var batchIDPtr *string
 	var sizeBytesPtr *int64
 	var previewHeadPtr, previewTailPtr *string
@@ -688,6 +1019,9 @@ func (s *DatabaseEventSink) EmitArtifactEvent(ctx context.Context, reviewID, org
 
 // EmitCompletionEvent emits a review completion event
 func (s *DatabaseEventSink) EmitCompletionEvent(ctx context.Context, reviewID, orgID int64, resultSummary string, commentCount int, errorSummary string) error {
+	if s == nil || s.service == nil {
+		return nil
+	}
 	var commentCountPtr *int
 	var errorSummaryPtr *string
 

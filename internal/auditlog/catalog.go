@@ -179,6 +179,8 @@ const (
 	ActionRepositoryRelationAdd    Action = "repository.relation.add"
 	ActionRepositoryRelationRemove Action = "repository.relation.remove"
 	ActionRepositoryCrossRepoQuery Action = "repository.cross_repo.query"
+	ActionRepositoryToolsUpdate    Action = "repository.tools.update"
+	ActionRepositoryToolsPreview   Action = "repository.tools.preview"
 	ActionRulesetCreate            Action = "ruleset.create"
 	ActionRulesetUpdate            Action = "ruleset.update"
 	ActionRulesetDelete            Action = "ruleset.delete"
@@ -333,6 +335,8 @@ var actionCatalog = func() map[Action]ActionMeta {
 		meta(ActionRepositoryRelationAdd, CategoryRepository, "repository", "Related repo added", "A repository was linked as related, for cross-repo blast-radius context.", SeverityInfo),
 		meta(ActionRepositoryRelationRemove, CategoryRepository, "repository", "Related repo removed", "A related-repo link was removed.", SeverityInfo),
 		meta(ActionRepositoryCrossRepoQuery, CategoryRepository, "review", "Cross-repo impact queried", "A local review asked for route matches in its related repositories.", SeverityInfo),
+		meta(ActionRepositoryToolsUpdate, CategoryRepository, "repository", "Repository tools updated", "Static analysis tool settings for a repository were changed.", SeverityWarning),
+		meta(ActionRepositoryToolsPreview, CategoryRepository, "repository", "Repository tools previewed", "Static analysis tools.toml syntax was validated in the editor.", SeverityInfo),
 		sensitive(meta(ActionRulesetCreate, CategoryRepository, "ruleset", "Ruleset created", "A CI ruleset was created.", SeverityWarning)),
 		sensitive(meta(ActionRulesetUpdate, CategoryRepository, "ruleset", "Ruleset updated", "A CI ruleset was changed.", SeverityWarning)),
 		sensitive(meta(ActionRulesetDelete, CategoryRepository, "ruleset", "Ruleset deleted", "A CI ruleset was deleted.", SeverityWarning)),

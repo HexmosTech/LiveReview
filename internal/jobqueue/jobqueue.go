@@ -30,6 +30,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -2381,6 +2382,46 @@ type JobQueue struct {
 	pool   *pgxpool.Pool
 	db     *sql.DB
 	config *QueueConfig
+
+	toolsRuntimeMu       sync.Mutex
+	toolsGlobalSem       chan struct{}
+	toolInvokeOverride   toolInvokeFunc
+	toolClassifyOverride toolClassifyFunc
+}
+
+// buildRiverClientConfig builds the River client config with explicit JobTimeout
+// and RescueStuckJobsAfter pinned >= 2x ReviewJobTimeout.
+func buildRiverClientConfig(config *QueueConfig, workers *river.Workers, periodicJobs []*river.PeriodicJob) *river.Config {
+	return &river.Config{
+		Queues:                      config.RiverQueueConfig(),
+		Workers:                     workers,
+		JobTimeout:                  config.EffectiveRiverJobTimeout(),
+		RescueStuckJobsAfter:        config.EffectiveRescueStuckJobsAfter(),
+		CompletedJobRetentionPeriod: 30 * 24 * time.Hour,
+		CancelledJobRetentionPeriod: 7 * 24 * time.Hour,
+		DiscardedJobRetentionPeriod: 7 * 24 * time.Hour,
+		PeriodicJobs:                periodicJobs,
+	}
+}
+
+// ensureToolsRuntime returns the normalized inline SAST execution config and
+// lazily initializes the process-wide semaphore so both production JobQueue
+// instances and minimal test &JobQueue{db: db} values enforce global throttling.
+func (jq *JobQueue) ensureToolsRuntime() (ToolsExecutionConfig, chan struct{}) {
+	cfg := jq.config.EffectiveToolsExecution()
+	jq.toolsRuntimeMu.Lock()
+	defer jq.toolsRuntimeMu.Unlock()
+	if jq.toolsGlobalSem == nil {
+		jq.toolsGlobalSem = make(chan struct{}, max(cfg.MaxConcurrentGlobal, 1))
+	}
+	return cfg, jq.toolsGlobalSem
+}
+
+func (jq *JobQueue) reviewJobTimeout() time.Duration {
+	if jq == nil || jq.config == nil {
+		return DefaultReviewJobTimeout
+	}
+	return jq.config.EffectiveReviewJobTimeout()
 }
 
 func parseCronOrDefault(expr string) river.PeriodicSchedule {
@@ -2437,6 +2478,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, webhookWorker)
 	river.AddWorker(workers, manualWorker)
 	river.AddWorker(workers, scheduledReviewWorker)
+	river.AddWorker(workers, NewToolReviewWorker(db))
 	river.AddWorker(workers, &UpdateOrgUsageWorker{db: db, pool: pool})
 	river.AddWorker(workers, repoPRSyncWorker)
 	river.AddWorker(workers, prStateSyncWorker)
@@ -2548,66 +2590,63 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 		))
 	}
 
-	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
-		Queues:                      config.RiverQueueConfig(),
-		Workers:                     workers,
-		CompletedJobRetentionPeriod: 30 * 24 * time.Hour,
-		CancelledJobRetentionPeriod: 7 * 24 * time.Hour,
-		DiscardedJobRetentionPeriod: 7 * 24 * time.Hour,
-		PeriodicJobs: append(periodicJobs,
-			river.NewPeriodicJob(
-				river.PeriodicInterval(coordinatorInterval),
-				func() (river.JobArgs, *river.InsertOpts) {
-					return ReconciliationSweepJobArgs{}, &river.InsertOpts{
-						Queue:       "repo_sync",
-						MaxAttempts: 3,
-						UniqueOpts: river.UniqueOpts{
-							ByPeriod: coordinatorInterval - time.Minute,
-						},
-					}
-				},
-				&river.PeriodicJobOpts{RunOnStart: false},
-			),
-			river.NewPeriodicJob(
-				river.PeriodicInterval(24*time.Hour),
-				func() (river.JobArgs, *river.InsertOpts) {
-					return RiskModelRefitJobArgs{}, &river.InsertOpts{Queue: "repo_sync", MaxAttempts: 3}
-				},
-				&river.PeriodicJobOpts{ID: "risk_model_refit", RunOnStart: false},
-			),
-			river.NewPeriodicJob(
-				river.PeriodicInterval(15*time.Minute),
-				func() (river.JobArgs, *river.InsertOpts) {
-					return SSOReconciliationJobArgs{}, &river.InsertOpts{Queue: "repo_sync", MaxAttempts: 3}
-				},
-				&river.PeriodicJobOpts{ID: "sso_reconciliation", RunOnStart: false},
-			),
-			river.NewPeriodicJob(
-				archivalSchedule,
-				func() (river.JobArgs, *river.InsertOpts) {
-					return PreloadedChangesArchivalSweepJobArgs{
-							RetentionDays: archivalRetentionDays,
-						}, &river.InsertOpts{
-							Queue:       "preloaded_changes_archival_sweep",
-							MaxAttempts: 3,
-						}
-				},
-				&river.PeriodicJobOpts{
-					ID:         "preloaded_changes_archival_sweep",
-					RunOnStart: false,
-				},
-			),
+	allPeriodicJobs := append(periodicJobs,
+		river.NewPeriodicJob(
+			river.PeriodicInterval(coordinatorInterval),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return ReconciliationSweepJobArgs{}, &river.InsertOpts{
+					Queue:       "repo_sync",
+					MaxAttempts: 3,
+					UniqueOpts: river.UniqueOpts{
+						ByPeriod: coordinatorInterval - time.Minute,
+					},
+				}
+			},
+			&river.PeriodicJobOpts{RunOnStart: false},
 		),
-	})
+		river.NewPeriodicJob(
+			river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return RiskModelRefitJobArgs{}, &river.InsertOpts{Queue: "repo_sync", MaxAttempts: 3}
+			},
+			&river.PeriodicJobOpts{ID: "risk_model_refit", RunOnStart: false},
+		),
+		river.NewPeriodicJob(
+			river.PeriodicInterval(15*time.Minute),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return SSOReconciliationJobArgs{}, &river.InsertOpts{Queue: "repo_sync", MaxAttempts: 3}
+			},
+			&river.PeriodicJobOpts{ID: "sso_reconciliation", RunOnStart: false},
+		),
+		river.NewPeriodicJob(
+			archivalSchedule,
+			func() (river.JobArgs, *river.InsertOpts) {
+				return PreloadedChangesArchivalSweepJobArgs{
+						RetentionDays: archivalRetentionDays,
+					}, &river.InsertOpts{
+						Queue:       "preloaded_changes_archival_sweep",
+						MaxAttempts: 3,
+					}
+			},
+			&river.PeriodicJobOpts{
+				ID:         "preloaded_changes_archival_sweep",
+				RunOnStart: false,
+			},
+		),
+	)
+
+	client, err := river.NewClient(riverpgxv5.New(pool), buildRiverClientConfig(config, workers, allPeriodicJobs))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create River client: %w", err)
 	}
 
+	toolsCfg := config.EffectiveToolsExecution()
 	jq := &JobQueue{
-		client: client,
-		pool:   pool,
-		db:     db,
-		config: config,
+		client:         client,
+		pool:           pool,
+		db:             db,
+		config:         config,
+		toolsGlobalSem: make(chan struct{}, max(toolsCfg.MaxConcurrentGlobal, 1)),
 	}
 	webhookWorker.jq = jq
 	manualWorker.jq = jq
@@ -2757,6 +2796,19 @@ func (jq *JobQueue) QueueUpdateOrgUsageJob(ctx context.Context, args UpdateOrgUs
 	if err != nil {
 		log.Printf("[ERROR] Failed to queue update org usage job: %v", err)
 		return fmt.Errorf("failed to queue update org usage job: %w", err)
+	}
+	return nil
+}
+
+// QueueToolReviewJob enqueues a single tool review execution job.
+func (jq *JobQueue) QueueToolReviewJob(ctx context.Context, args ToolReviewJobArgs) error {
+	if jq == nil || jq.client == nil {
+		return fmt.Errorf("job queue client is not initialized")
+	}
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review", MaxAttempts: 3})
+	if err != nil {
+		log.Printf("[ERROR] Failed to queue tool review job for %s: %v", args.ToolName, err)
+		return fmt.Errorf("failed to queue tool review job: %w", err)
 	}
 	return nil
 }

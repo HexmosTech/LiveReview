@@ -93,10 +93,12 @@ type QueueConfig struct {
 	MaxWorkers int // Number of concurrent workers processing jobs (default: 10)
 
 	// Retry Configuration
-	MaxRetries   int           // Maximum retry attempts per job (default: 25)
-	RetryPolicy  RetryPolicy   // Retry timing and backoff configuration
-	JobTimeout   time.Duration // Maximum time a single job can run (default: 5 minutes)
-	QueueTimeout time.Duration // Maximum time jobs can stay in queue (default: 24 hours)
+	MaxRetries           int           // Maximum retry attempts per job (default: 25)
+	RetryPolicy          RetryPolicy   // Retry timing and backoff configuration
+	JobTimeout           time.Duration // Maximum time a single job can run (default: 5 minutes)
+	QueueTimeout         time.Duration // Maximum time jobs can stay in queue (default: 24 hours)
+	ReviewJobTimeout     time.Duration // Maximum time a review worker job can run (default: 10 minutes)
+	RescueStuckJobsAfter time.Duration // River stuck-job rescue threshold (pinned >= 2 * ReviewJobTimeout)
 
 	// GitLab API Configuration (hardcoded for now, will be dynamic later)
 	GitLabConfig GitLabConfig
@@ -109,6 +111,9 @@ type QueueConfig struct {
 
 	// Preloaded Changes Archival Configuration
 	PreloadedChangesArchivalConfig PreloadedChangesArchivalConfig
+
+	// Inline SAST Tools Execution Configuration
+	ToolsExecution ToolsExecutionConfig
 }
 
 // PreloadedChangesArchivalConfig controls the parallel preloaded_changes archival worker pool concurrency.
@@ -178,9 +183,74 @@ type WebhookEvents struct {
 	PipelineEvents      bool // CI/CD pipeline events
 }
 
+const DefaultReviewJobTimeout = 10 * time.Minute
+
+func reviewJobTimeoutFromEnv() time.Duration {
+	timeout := DefaultReviewJobTimeout
+	if v := os.Getenv("LIVEREVIEW_REVIEW_JOB_TIMEOUT_SECONDS"); v != "" {
+		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+			timeout = time.Duration(secs) * time.Second
+		}
+	} else if v := os.Getenv("LIVEREVIEW_REVIEW_JOB_TIMEOUT_MINUTES"); v != "" {
+		if mins, err := strconv.Atoi(v); err == nil && mins > 0 {
+			timeout = time.Duration(mins) * time.Minute
+		}
+	}
+	return timeout
+}
+
+func rescueStuckJobsAfterFromEnv(reviewJobTimeout time.Duration) time.Duration {
+	rescueAfter := max(2*reviewJobTimeout, 20*time.Minute)
+	if v := os.Getenv("LIVEREVIEW_RIVER_RESCUE_STUCK_JOBS_AFTER_MINUTES"); v != "" {
+		if mins, err := strconv.Atoi(v); err == nil && mins > 0 {
+			rescueAfter = max(time.Duration(mins)*time.Minute, 2*reviewJobTimeout)
+		}
+	}
+	return rescueAfter
+}
+
+// EffectiveReviewJobTimeout returns the normalized review worker job timeout.
+func (c *QueueConfig) EffectiveReviewJobTimeout() time.Duration {
+	if c == nil || c.ReviewJobTimeout <= 0 {
+		return DefaultReviewJobTimeout
+	}
+	return c.ReviewJobTimeout
+}
+
+// EffectiveRescueStuckJobsAfter returns the pinned River RescueStuckJobsAfter
+// duration, guaranteed to be at least 2x EffectiveReviewJobTimeout (and > JobTimeout).
+func (c *QueueConfig) EffectiveRescueStuckJobsAfter() time.Duration {
+	if c == nil {
+		return max(2*DefaultReviewJobTimeout, 6*time.Minute)
+	}
+	reviewTimeout := c.EffectiveReviewJobTimeout()
+	minRescue := max(2*reviewTimeout, c.EffectiveRiverJobTimeout()+time.Minute)
+	if c.RescueStuckJobsAfter < minRescue {
+		return minRescue
+	}
+	return c.RescueStuckJobsAfter
+}
+
+// EffectiveRiverJobTimeout returns the client-level default River JobTimeout.
+func (c *QueueConfig) EffectiveRiverJobTimeout() time.Duration {
+	if c == nil || c.JobTimeout <= 0 {
+		return 5 * time.Minute
+	}
+	return c.JobTimeout
+}
+
+// EffectiveToolsExecution returns normalized inline SAST tool execution settings.
+func (c *QueueConfig) EffectiveToolsExecution() ToolsExecutionConfig {
+	if c == nil {
+		return DefaultToolsExecutionConfig().Normalize(DefaultReviewJobTimeout)
+	}
+	return c.ToolsExecution.Normalize(c.EffectiveReviewJobTimeout())
+}
+
 // DefaultQueueConfig returns the default configuration
 // For production webhook URL, use DefaultQueueConfigWithDB instead
 func DefaultQueueConfig() *QueueConfig {
+	reviewTimeout := reviewJobTimeoutFromEnv()
 	return &QueueConfig{
 		// Worker settings - tune based on your server capacity and GitLab API rate limits
 		MaxWorkers: 10, // Start with 10, increase if you have many projects and good network
@@ -195,8 +265,10 @@ func DefaultQueueConfig() *QueueConfig {
 		},
 
 		// Timeout settings
-		JobTimeout:   5 * time.Minute, // Each webhook installation should complete within 5 minutes
-		QueueTimeout: 24 * time.Hour,  // Jobs expire from queue after 24 hours
+		JobTimeout:           5 * time.Minute, // Each webhook installation should complete within 5 minutes
+		QueueTimeout:         24 * time.Hour,  // Jobs expire from queue after 24 hours
+		ReviewJobTimeout:     reviewTimeout,
+		RescueStuckJobsAfter: rescueStuckJobsAfterFromEnv(reviewTimeout),
 
 		// GitLab API configuration - development defaults only
 		// In production, PAT is fetched from database per-org
@@ -229,6 +301,10 @@ func DefaultQueueConfig() *QueueConfig {
 		// Preloaded changes archival configuration - overridable via env vars, see
 		// preloadedChangesArchivalConfigFromEnv.
 		PreloadedChangesArchivalConfig: preloadedChangesArchivalConfigFromEnv(),
+
+		// Inline SAST tools configuration - overridable via env vars, see
+		// internal/jobqueue/tools_config.go.
+		ToolsExecution: toolsExecutionConfigFromEnv(reviewTimeout),
 	}
 }
 

@@ -1,0 +1,44 @@
+[actionlint]
+enabled = true
+
+[bandit]
+enabled = true
+
+[detect-secrets]
+enabled = true
+
+[eslint]
+enabled = true
+
+[gitleaks]
+enabled = true
+
+[golangci-lint]
+enabled = true
+
+[hadolint]
+enabled = true
+
+[openapi]
+enabled = true
+
+[osv]
+enabled = true
+
+[ruff]
+enabled = true
+
+[semgrep]
+enabled = true
+
+[spectral]
+enabled = true
+
+[tfsec]
+enabled = true
+
+[trivy]
+enabled = true
+
+[trufflehog]
+enabled = true

@@ -210,3 +210,58 @@ func TestTruncateAtLineBoundaryUnderLimit(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, text)
 	}
 }
+
+func TestValidateToolsToml(t *testing.T) {
+	t.Run("valid multi-section and [tools] config", func(t *testing.T) {
+		res := ValidateToolsToml(`
+[ruff]
+enabled = true
+include = ["**/*.py"]
+exclude = ["tests/**"]
+
+[tools]
+gitleaks = false
+`)
+		if !res.Valid {
+			t.Fatalf("expected valid TOML, got error: %s", res.Error)
+		}
+		if !res.EnabledMap["ruff"] || res.EnabledMap["gitleaks"] {
+			t.Fatalf("unexpected enabled_map: %+v", res.EnabledMap)
+		}
+		if len(res.RuleConfigs["ruff"].Include) != 1 || res.RuleConfigs["ruff"].Include[0] != "**/*.py" {
+			t.Fatalf("unexpected rule configs: %+v", res.RuleConfigs)
+		}
+	})
+
+	t.Run("syntax error includes line and column from go-toml", func(t *testing.T) {
+		res := ValidateToolsToml("[ruff]\nenabled = maybe\n")
+		if res.Valid {
+			t.Fatalf("expected syntax error for invalid boolean literal")
+		}
+		if res.ErrorLine != 2 {
+			t.Fatalf("expected error_line=2, got %d (err=%q)", res.ErrorLine, res.Error)
+		}
+	})
+
+	t.Run("rejects duplicate sections and duplicate tool names across [tools]", func(t *testing.T) {
+		res := ValidateToolsToml("[ruff]\nenabled = true\n\n[tools.ruff]\nenabled = false\n")
+		if res.Valid {
+			t.Fatalf("expected duplicate section error")
+		}
+		if !strings.Contains(res.Error, "Duplicate") {
+			t.Fatalf("expected duplicate message, got %q", res.Error)
+		}
+	})
+
+	t.Run("rejects unknown keys and invalid field types", func(t *testing.T) {
+		resUnknown := ValidateToolsToml("[ruff]\nfoo = true\n")
+		if resUnknown.Valid || !strings.Contains(resUnknown.Error, "Unknown key") {
+			t.Fatalf("expected unknown key error, got valid=%v err=%q", resUnknown.Valid, resUnknown.Error)
+		}
+
+		resType := ValidateToolsToml("[ruff]\ninclude = \"**/*.py\"\n")
+		if resType.Valid || !strings.Contains(resType.Error, "array of strings") {
+			t.Fatalf("expected type error, got valid=%v err=%q", resType.Valid, resType.Error)
+		}
+	})
+}

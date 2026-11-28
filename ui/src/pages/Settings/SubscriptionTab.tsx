@@ -178,6 +178,8 @@ type BillingUsageSummaryResponse = {
   accounted_operations: number;
   token_tracked_ops: number;
   latest_accounted_at?: string;
+  tool_credits_used_month?: number;
+  tool_credits_limit_month?: number;
 };
 
 type BillingUsageOperationsResponse = {
@@ -283,6 +285,7 @@ type UpgradePreviewResponse = {
     charge_timing: string;
     plan_switch_timing: string;
     final_payable_cents: number;
+    is_trial_upgrade?: boolean;
   };
   preview_token: string;
   preview_expires_at: string;
@@ -577,7 +580,8 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const fallbackPlanCode = rawPlanType === 'free' ? 'free_30k' : rawPlanType === 'team' ? 'team_32usd' : rawPlanType;
   const currentPlanCode = billingStatus?.billing?.current_plan_code || fallbackPlanCode;
   const currentPlan = billingStatus?.available_plans?.find((p) => p.plan_code === currentPlanCode) || null;
-  const currentPlanCurrency = normalizePurchaseCurrency(billingStatus?.billing?.current_plan_currency);
+  const currentPlanCurrency = normalizePurchaseCurrency(billingStatus?.billing?.current_plan_currency) ||
+    (currentPlanCode.endsWith('usd') ? 'USD' : null);
   const licenseExpiresAt = currentOrg?.license_expires_at;
   const isFree = currentPlanCode === 'free_30k' || currentPlanCode === 'free';
   const isTeamPlan = !isFree;
@@ -1595,6 +1599,8 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     return 'Upgrade is in progress. Final grant happens after both confirmations complete.';
   })();
 
+  const isTrialUpgrade = Boolean(upgradePreview?.preview?.is_trial_upgrade ?? trialActive);
+
   return (
     <div className="space-y-6">
       <div>
@@ -1900,6 +1906,17 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                 {usageSummary.accounted_operations.toLocaleString()} ({usageSummary.token_tracked_ops.toLocaleString()} token-tracked)
               </p>
             </div>
+            {!isFree && isCloudMode() && (
+              <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
+                <p className="text-slate-400">Tool Credits</p>
+                <p className="text-white font-semibold">
+                  {(usageSummary.tool_credits_used_month ?? 0).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                  {usageSummary.tool_credits_limit_month ? (
+                    <span className="text-xs text-slate-400 font-normal"> / {usageSummary.tool_credits_limit_month.toLocaleString()}</span>
+                  ) : null}
+                </p>
+              </div>
+            )}
           </div>
 
           {myUsage && (
@@ -2007,6 +2024,18 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
         <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6 space-y-4">
           <h3 className="text-md font-semibold text-white">Upgrade Plan to Get More Usage</h3>
           <p className="text-sm text-slate-400">Choose an upgrade option below. Downgrade and cancellation are in Subscription Control.</p>
+
+          {trialActive && (
+            <div className="rounded-lg border border-sky-500/40 bg-sky-950/40 p-4 text-sm text-sky-200 space-y-1">
+              <div className="flex items-center gap-2 font-medium text-sky-100">
+                <span className="inline-flex h-2 w-2 rounded-full bg-sky-400 animate-pulse" />
+                Active Free Trial
+              </div>
+              <p className="text-xs text-sky-200">
+                Upgrading to a higher plan ends your 7-day free trial immediately. You will pay the full monthly price for the upgraded tier, your new LOC limit starts today, and your paid 30-day billing cycle begins immediately (no automatic Day 7 trial charge).
+              </p>
+            </div>
+          )}
 
           {(billingLoading || statusLoading) && (
             <div className="space-y-3 animate-pulse">
@@ -2507,9 +2536,13 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
           <div className="w-full max-w-2xl rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
             <div className="border-b border-slate-700 px-6 py-4">
-              <h3 className="text-lg font-semibold text-white">Confirm Upgrade and Prorated Charge</h3>
+              <h3 className="text-lg font-semibold text-white">
+                {isTrialUpgrade ? 'Confirm Plan Upgrade (Ends Free Trial)' : 'Confirm Upgrade and Prorated Charge'}
+              </h3>
               <p className="mt-1 text-sm text-slate-300">
-                This charge applies now for the remaining current cycle. Upgrade grant is finalized after deterministic payment and subscription confirmations.
+                {isTrialUpgrade
+                  ? 'Upgrading now ends your free trial. Your paid billing cycle begins immediately with your new LOC limit, and your scheduled trial charge is cancelled.'
+                  : 'This charge applies now for the remaining current cycle. Upgrade grant is finalized after deterministic payment and subscription confirmations.'}
               </p>
             </div>
 
@@ -2517,7 +2550,10 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
               <div className="rounded-lg border border-slate-700 bg-slate-800/70 p-4 space-y-2 text-slate-200">
                 <p>Current plan: <span className="text-white">{getPlanDisplayName(upgradePreview.preview.from_plan_code)}</span></p>
                 <p>Target plan: <span className="text-white">{getPlanDisplayName(upgradePreview.preview.to_plan_code)}</span></p>
-                <p>Current cycle ends: <span className="text-white">{formatDate(upgradePreview.preview.cycle_end)}</span></p>
+                <p>
+                  {isTrialUpgrade ? 'New billing cycle ends:' : 'Current cycle ends:'}{' '}
+                  <span className="text-white">{upgradePreview.preview.cycle_end ? formatDate(upgradePreview.preview.cycle_end) : 'end of billing cycle'}</span>
+                </p>
               </div>
 
               <div className="rounded-lg border border-slate-700 bg-slate-800/70 p-4 space-y-2 text-slate-200">
@@ -2552,17 +2588,28 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
               </div>
 
               <div className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-4 space-y-2 text-slate-100">
-                <p className="font-medium text-blue-200">Immediate one-time payment</p>
+                <p className="font-medium text-blue-200">
+                  {isTrialUpgrade ? 'Payment required now' : 'Immediate one-time payment'}
+                </p>
                 <p>
                   Charge now: <span className="text-white font-semibold">{formatChargeAmount(upgradePreview.preview.immediate_charge_cents, upgradePreview.preview.immediate_charge_currency) || formatMinorAmount(0, purchaseCurrency)}</span>
-                  {' '}(remaining cycle {(upgradePreview.preview.remaining_cycle_fraction * 100).toFixed(2)}%)
+                  {!isTrialUpgrade && (
+                    <span>{' '}(remaining cycle {(upgradePreview.preview.remaining_cycle_fraction * 100).toFixed(2)}%)</span>
+                  )}
                 </p>
-                <p>
-                  Formula: <span className="text-white">{formatChargeAmount(upgradePreview.preview.next_cycle_price_cents, upgradePreview.preview.immediate_charge_currency) || formatMinorAmount(0, purchaseCurrency)} × {(upgradePreview.preview.remaining_cycle_fraction * 100).toFixed(2)}%</span>
-                </p>
+                {!isTrialUpgrade && (
+                  <p>
+                    Formula: <span className="text-white">{formatChargeAmount(upgradePreview.preview.next_cycle_price_cents, upgradePreview.preview.immediate_charge_currency) || formatMinorAmount(0, purchaseCurrency)} × {(upgradePreview.preview.remaining_cycle_fraction * 100).toFixed(2)}%</span>
+                  </p>
+                )}
                 <p>
                   Immediate LOC grant: <span className="text-white font-semibold">{upgradePreview.preview.immediate_loc_grant.toLocaleString()} LOC</span>
                 </p>
+                {isTrialUpgrade && (
+                  <p className="text-xs text-sky-200">
+                    Full monthly quota granted immediately. Your next automatic renewal will be on <span className="text-white font-medium">{upgradePreview.preview.cycle_end ? formatDate(upgradePreview.preview.cycle_end) : 'the next renewal date'}</span>.
+                  </p>
+                )}
               </div>
 
               <div className="rounded-lg border border-emerald-500/40 bg-emerald-900/20 p-4 space-y-2 text-slate-100">
@@ -2576,7 +2623,9 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
               </div>
 
               <div className="rounded-lg border border-amber-500/40 bg-amber-900/20 p-3 text-xs text-amber-100">
-                By confirming, you authorize a one-time prorated payment now and start a tracked upgrade process that resolves after all confirmations.
+                {isTrialUpgrade
+                  ? 'By confirming, you authorize payment for your new plan. Your free trial ends immediately, your new billing cycle begins today, and you will not be charged at the end of the trial period.'
+                  : 'By confirming, you authorize a one-time prorated payment now and start a tracked upgrade process that resolves after all confirmations.'}
               </div>
             </div>
 
@@ -2598,7 +2647,11 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                 onClick={confirmUpgrade}
                 className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
               >
-                {upgradeCheckoutLoading ? 'Processing...' : 'Confirm and Pay Now'}
+                {upgradeCheckoutLoading
+                  ? 'Processing...'
+                  : isTrialUpgrade
+                    ? 'Pay Full Amount and Upgrade'
+                    : 'Confirm and Pay Now'}
               </button>
             </div>
           </div>

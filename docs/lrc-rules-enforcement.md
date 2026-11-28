@@ -175,7 +175,15 @@ GET https://api.bitbucket.org/2.0/repositories/{workspace}/{repo_slug}/src/{ref}
 Authorization: Basic {base64(email:app_password)}
 ```
 
-`{ref}` = branch name (e.g., `main`). `workspace` and `repo_slug` come from `event.Repository.FullName`.
+`{ref}` = commit SHA (preferred) or branch name. `workspace` and `repo_slug` come from `event.Repository.FullName`.
+
+> [!WARNING] Bitbucket API Limitation: Branch Names with Slashes
+> Bitbucket REST API v2 `/src/{ref}/...` embeds the reference directly into the URL path segment. If `{ref}` contains a forward slash (`/`), such as `test/tool-trufflehog` or `feat/login`, Bitbucket's web router decodes `/` (even when escaped as `%2F`) as a URL directory separator. Bitbucket truncates `{ref}` to everything before the slash (e.g. `shas: ["test"]`), causing a `404 Commit not found` error.
+>
+> **Solution**:
+> 1. In PR reviews, always pass `mrDetails.DiffRefs.HeadSHA` (a 40-character hex commit hash), which never has slashes.
+> 2. In Bitbucket's `GetRepoConfigFiles`, if `{ref}` contains a `/` and is not a 40-char SHA, dynamically resolve it to its target commit hash via `GET /2.0/repositories/{workspace}/{repo_slug}/refs/branches?q=name = "<ref>"`.
+> 3. If `.lrc/*` files are added or modified directly in the PR, LiveReview also extracts them from the PR's `changes` diff as a fallback/overlay.
 
 Response:
 ```json
